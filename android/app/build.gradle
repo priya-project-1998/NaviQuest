@@ -105,6 +105,12 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+    packagingOptions {
+        pickFirst 'lib/arm64-v8a/libworklets.so'
+        pickFirst 'lib/x86_64/libworklets.so'
+        pickFirst 'lib/x86/libworklets.so'
+        pickFirst 'lib/armeabi-v7a/libworklets.so'
+    }
 }
 
 dependencies {
