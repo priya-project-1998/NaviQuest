@@ -33,18 +33,18 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>NaviQuest uses your location to help you find and join events near you, and to show event locations on the map.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>NaviQuest uses your location to help you find and join events near you, and to show event locations on the map.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>NaviQuest accesses your photo library to allow you to upload profile pictures and event images.</string>
-	<key>NSPhotoLibraryAddOnlyUsageDescription</key>
-	<string>NaviQuest needs permission to add photos to your photo library when you save event images.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>NaviQuest needs access to your camera to allow you to take photos for your profile or events.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>NaviQuest uses your location to help you find and join events near you, and to show event locations on the map.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NaviQuest uses your location to help you find and join events near you, and to show event locations on the map.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>NaviQuest needs access to your microphone for event audio features.</string>
+	<key>NSPhotoLibraryAddOnlyUsageDescription</key>
+	<string>NaviQuest needs permission to add photos to your photo library when you save event images.</string>
+	<key>NSPhotoLibraryUsageDescription </key>
+	<string>NaviQuest requires access to your photo library to allow you to select and upload photos.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
