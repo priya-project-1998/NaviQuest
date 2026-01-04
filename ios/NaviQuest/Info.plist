@@ -43,7 +43,7 @@
 	<string>NaviQuest needs access to your microphone for event audio features.</string>
 	<key>NSPhotoLibraryAddOnlyUsageDescription</key>
 	<string>NaviQuest needs permission to add photos to your photo library when you save event images.</string>
-	<key>NSPhotoLibraryUsageDescription </key>
+	<key>NSPhotoLibraryUsageDescription</key>
 	<string>NaviQuest requires access to your photo library to allow you to select and upload photos.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
