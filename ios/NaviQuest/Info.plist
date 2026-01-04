@@ -41,6 +41,10 @@
 	<string>NaviQuest accesses your photo library to allow you to upload profile pictures and event images.</string>
 	<key>NSPhotoLibraryAddOnlyUsageDescription</key>
 	<string>NaviQuest needs permission to add photos to your photo library when you save event images.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>NaviQuest needs access to your camera to allow you to take photos for your profile or events.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>NaviQuest needs access to your microphone for event audio features.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
