@@ -1,4 +1,4 @@
-package com.naviquest;
+package com.vcmapp;
 
 import android.content.Intent;
 import android.os.Bundle;

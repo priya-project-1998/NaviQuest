@@ -33,7 +33,6 @@
     "react-native-gesture-handler": "^2.30.0",
     "react-native-gradle-plugin": "^0.71.19",
     "react-native-image-picker": "^8.2.1",
-    "react-native-keep-awake": "^4.0.0",
     "react-native-linear-gradient": "^2.8.3",
     "react-native-maps": "^1.26.20",
     "react-native-permissions": "^5.4.4",

@@ -77,12 +77,12 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.naviquest"
+    namespace "com.vcmapp"
     defaultConfig {
-        applicationId "com.naviquest"
+        applicationId "com.vcmapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 63
+        versionCode 67
         versionName "1.0"
     }
     signingConfigs {
