@@ -9,14 +9,15 @@ import {
   ScrollView,
   ActivityIndicator,
   Dimensions,
+  Platform,
+  KeyboardAvoidingView,
 } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
-import Icon from "react-native-vector-icons/Feather";
-import { useFocusEffect } from "@react-navigation/native";
+
+const { height: SCREEN_HEIGHT, width } = Dimensions.get("window");
 
 import SignupService from "../services/apiService/signup_service";
-
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+import { useFocusEffect } from "@react-navigation/native";
 
 export default function SignupScreen({ navigation }) {
   // ---------------- State ----------------
@@ -123,6 +124,19 @@ export default function SignupScreen({ navigation }) {
     }
   };
 
+  // -------- Icon mapping for emojis --------
+  const iconMap = {
+    mail: "📧",
+    user: "👤",
+    phone: "📱",
+    lock: "🔒",
+    home: "🏠",
+    "map-pin": "📍",
+    map: "🗺️",
+    hash: "🔢",
+    key: "🔑",
+  };
+
   // ---------------- Input Component ----------------
   const renderInput = (
     icon,
@@ -135,7 +149,7 @@ export default function SignupScreen({ navigation }) {
     toggleSecure = false
   ) => (
     <View style={styles.inputContainer}>
-      <Icon name={icon} size={20} color="#ccc" style={styles.icon} />
+      <Text style={styles.iconText}>{iconMap[icon] || icon}</Text>
       <TextInput
         style={styles.input}
         placeholder={placeholder}
@@ -148,7 +162,7 @@ export default function SignupScreen({ navigation }) {
       />
       {toggleSecure && (
         <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-          <Icon name={showPassword ? "eye-off" : "eye"} size={20} color="#ccc" />
+          <Text style={styles.iconText}>{showPassword ? "👁️" : "👁️‍🗨️"}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -157,59 +171,68 @@ export default function SignupScreen({ navigation }) {
   // ---------------- Render ----------------
   return (
     <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradient}>
-      <View
-        style={[
-          styles.card,
-          { maxHeight: SCREEN_HEIGHT * 0.8, marginVertical: 20, marginHorizontal: 16 },
-        ]}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
       >
-        <Text style={styles.title}>
-          {step === "register" ? "Create Account" : "Verify OTP"}
-        </Text>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          scrollEnabled={true}
+          nestedScrollEnabled={true}
+        >
+          <View style={styles.centerContainer}>
+            <View style={styles.card}>
+              <Text style={styles.title}>
+                {step === "register" ? "Create Account" : "Verify OTP"}
+              </Text>
 
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {step === "register" && (
-            <>
-              {renderInput("mail", "Email (Gmail only)", email, setEmail, "email-address")}
-              {renderInput("user", "Full Name", name, setName, "default")}
-              {renderInput("user", "Username", username, setUsername, "default")}
-              {renderInput("phone", "Mobile Number", mobile, (t) => setMobile(t.replace(/[^0-9]/g, "")), "numeric")}
-              {renderInput("lock", "Password", password, setPassword, "default", !showPassword, true, true)}
-              {renderInput("home", "Address", address, setAddress, "default")}
-              {renderInput("map-pin", "City", city, setCity, "default")}
-              {renderInput("map", "State", state, setState, "default")}
-              {renderInput("hash", "Pincode", pincode, setPincode, "numeric")}
-            </>
-          )}
+            {step === "register" && (
+              <>
+                {renderInput("mail", "Email", email, setEmail, "email-address")}
+                {renderInput("user", "Full Name", name, setName, "default")}
+                {renderInput("user", "Username", username, setUsername, "default")}
+                {renderInput("phone", "Mobile Number", mobile, (t) => setMobile(t.replace(/[^0-9]/g, "")), "numeric")}
+                {renderInput("lock", "Password", password, setPassword, "default", !showPassword, true, true)}
+                {renderInput("home", "Address", address, setAddress, "default")}
+                {renderInput("map-pin", "City", city, setCity, "default")}
+                {renderInput("map", "State", state, setState, "default")}
+                {renderInput("hash", "Pincode", pincode, setPincode, "numeric")}
+              </>
+            )}
 
-          {step === "otp" && (
-            <>
-              {renderInput("mail", "Email", email, setEmail, "email-address", false, false)}
-              {renderInput("key", "Enter OTP", otp, setOtp, "numeric")}
-            </>
-          )}
+            {step === "otp" && (
+              <>
+                {renderInput("mail", "Email", email, setEmail, "email-address", false, false)}
+                {renderInput("key", "Enter OTP", otp, setOtp, "numeric")}
+              </>
+            )}
+
+            {step === "register" ? (
+              <TouchableOpacity activeOpacity={0.8} onPress={handleSignup} disabled={loading} style={styles.buttonWrapper}>
+                <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.button}>
+                  <Text style={styles.buttonText}>{loading ? "Signing Up..." : "Sign Up"}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity activeOpacity={0.8} onPress={handleOtpVerify} disabled={loading} style={styles.buttonWrapper}>
+                <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.button}>
+                  <Text style={styles.buttonText}>{loading ? "Verifying..." : "Verify OTP"}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+
+            {step === "register" && (
+              <TouchableOpacity onPress={() => navigation.replace("LoginScreen")}>
+                <Text style={styles.link}>Already have an account? Log in</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          </View>
         </ScrollView>
-
-        {step === "register" ? (
-          <TouchableOpacity activeOpacity={0.8} onPress={handleSignup} disabled={loading}>
-            <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.button}>
-              <Text style={styles.buttonText}>{loading ? "Signing Up..." : "Sign Up"}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity activeOpacity={0.8} onPress={handleOtpVerify} disabled={loading}>
-            <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.button}>
-              <Text style={styles.buttonText}>{loading ? "Verifying..." : "Verify OTP"}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
-
-        {step === "register" && (
-          <TouchableOpacity onPress={() => navigation.replace("LoginScreen")}>
-            <Text style={styles.link}>Already have an account? Log in</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      </KeyboardAvoidingView>
 
       {loading && (
         <View style={styles.loadingOverlay}>
@@ -221,51 +244,88 @@ export default function SignupScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1, justifyContent: "center" },
+  gradient: { 
+    flex: 1 
+  },
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: width > 600 ? 40 : 20,
+    paddingVertical: width > 600 ? 50 : 40,
+  },
+  centerContainer: {
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingVertical: width > 600 ? 20 : 15,
+  },
   card: {
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    marginHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: width > 600 ? 30 : 20,
+    padding: width > 600 ? 40 : 20,
+    width: "100%",
+    maxWidth: 500,
+    alignSelf: "center",
+    marginBottom: width > 600 ? 100 : 80,
   },
   title: {
-    fontSize: 28,
+    fontSize: width > 600 ? 32 : 28,
     fontWeight: "bold",
     color: "#fff",
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: width > 600 ? 25 : 15,
     letterSpacing: 1,
   },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderRadius: 10,
-    marginVertical: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: width > 600 ? 15 : 10,
+    marginVertical: width > 600 ? 12 : 8,
+    paddingHorizontal: width > 600 ? 15 : 10,
+    paddingVertical: width > 600 ? 16 : 12,
   },
-  icon: { marginRight: 12 },
-  input: { flex: 1, color: "#fff", fontSize: 16 },
+  icon: { 
+    marginRight: 10 
+  },
+  iconText: {
+    fontSize: width > 600 ? 24 : 20,
+    marginRight: 8,
+  },
+  input: { 
+    flex: 1, 
+    color: "#fff", 
+    fontSize: width > 600 ? 18 : 16,
+    paddingVertical: Platform.OS === "ios" ? 8 : 0,
+  },
+  buttonWrapper: {
+    minHeight: width > 600 ? 56 : 48,
+    borderRadius: width > 600 ? 16 : 12,
+    marginTop: width > 600 ? 28 : 20,
+    marginBottom: width > 600 ? 20 : 15,
+  },
   button: {
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 15,
-    shadowColor: "#000",
+    flex: 1,
+    borderRadius: width > 600 ? 16 : 12,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#36D1DC",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 5,
   },
   buttonText: { 
     color: "#fff", 
-    fontWeight: "bold", 
-    fontSize: 18, 
-    textAlign: "center" 
+    fontWeight: "700", 
+    fontSize: width > 600 ? 18 : 16, 
+    textAlign: "center",
+    letterSpacing: 0.8,
   },
-  link: { color: "#36D1DC", textAlign: "center", marginTop: 20, fontSize: 15 },
+  link: { 
+    color: "#36D1DC", 
+    textAlign: "center", 
+    marginTop: width > 600 ? 20 : 15, 
+    fontSize: width > 600 ? 18 : 16,
+  },
   loadingOverlay: {
     position: "absolute",
     top: 0,

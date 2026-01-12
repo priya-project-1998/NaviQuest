@@ -75,16 +75,10 @@ export default function LoginScreen({ navigation }) {
   return (
     <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradient}>
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentInsetAdjustmentBehavior="always"
-        >
-          <View style={styles.card}>
+        <View style={styles.card}>
             <Text style={styles.title}>Login</Text>
             {renderInput("👤", "Username", username, setUsername, "default", false)}
             {renderInput("🔒", "Password", password, setPassword, "default", true, true)}
@@ -111,28 +105,26 @@ export default function LoginScreen({ navigation }) {
               <Text style={[styles.link, { color: "#36D1DC" }]}>Don't have an account? Sign up</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </LinearGradient>
-  );
-}
+        </KeyboardAvoidingView>
+      </LinearGradient>
+    );
+  }
 
 const styles = StyleSheet.create({
   gradient: { 
     flex: 1 
   },
   container: { 
-    flexGrow: 1, 
+    flex: 1, 
     alignItems: "center",
     justifyContent: "center",
-    padding: width > 600 ? 40 : 20,
+    paddingHorizontal: width > 600 ? 40 : 20,
     paddingVertical: width > 600 ? 50 : 40,
   },
   card: { 
     backgroundColor: "rgba(255,255,255,0.1)", 
     borderRadius: width > 600 ? 30 : 20, 
     padding: width > 600 ? 40 : 20,
-    marginHorizontal: width > 600 ? 30 : 0,
     width: "100%",
     maxWidth: 500,
     alignSelf: "center",
