@@ -164,13 +164,13 @@ function DrawerNavigator() {
       {/* <Drawer.Screen name="Feedback" component={FeedbackScreen} /> */}
       <Drawer.Screen name="Invite User" component={InviteUserScreen} />
       {/* <Drawer.Screen name="Rate Us" component={RateUsScreen} /> */}
-      <Drawer.Screen name="Location Permission Policy" component={LocationPermissionPolicyScreen} />
       <Drawer.Screen name="Settings" component={SettingsScreen} />
+      <Drawer.Screen name="Location Permission Policy" component={LocationPermissionPolicyScreen} />
       <Drawer.Screen name="Privacy Policy" component={PrivacyPolicyScreen} />
       <Drawer.Screen name="Terms & Condition" component={TermsConditionScreen} />
       <Drawer.Screen name="About App" component={AboutAppScreen} />
       <Drawer.Screen 
-        name="Delete Account" 
+        name="Delete Accounts" 
         component={() => null}
         options={{
           drawerLabel: 'Delete Account',

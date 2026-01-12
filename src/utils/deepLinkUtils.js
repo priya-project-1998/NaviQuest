@@ -59,12 +59,13 @@ export const generateEventShareLink = (eventData) => {
  */
 export const generateShareMessage = (eventData) => {
   const linkData = generateEventShareLink(eventData);
-  
-  const message = `Check out this event:\n${linkData.eventName}\nVenue: ${linkData.eventVenue}\nDate: ${new Date(linkData.eventDate).toLocaleDateString()}\n\nJoin here: ${linkData.webLink}`;
+  const isIOS = Platform.OS === 'ios';
+  const storeUrl = isIOS ? APP_STORE_URL : PLAY_STORE_URL;
+  const message = `Check out this event:\n${linkData.eventName}\nVenue: ${linkData.eventVenue}\nDate: ${new Date(linkData.eventDate).toLocaleDateString()}\n\nJoin here: ${storeUrl}`;
 
   return {
     message,
-    url: linkData.webLink,
+    url: storeUrl,
     title: `Join ${linkData.eventName}`,
     ...linkData
   };
@@ -164,13 +165,11 @@ export const handleIncomingDeepLink = (url, navigationRef) => {
 export const shareEvent = async (eventData) => {
   try {
     const shareData = generateShareMessage(eventData);
-    
     const result = await Share.share({
       message: shareData.message,
       url: shareData.url, // For iOS
       title: shareData.title,
     });
-
     return { success: true, result };
   } catch (error) {
     console.log('Error sharing event:', error);

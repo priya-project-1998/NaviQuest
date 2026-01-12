@@ -82,7 +82,7 @@ android {
         applicationId "com.vcmapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 67
+        versionCode 68
         versionName "1.0"
     }
     signingConfigs {

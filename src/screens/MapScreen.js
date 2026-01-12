@@ -1082,8 +1082,8 @@ const syncPendingCheckpoints = async () => {
       );
       return true; // Prevent default back
     };
-    BackHandler.addEventListener("hardwareBackPress", onBackPress);
-    return () => BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+    const unsubscribe = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => unsubscribe.remove();
   }, [eventCompletedModal]);
 
   // Check if all checkpoints are completed
@@ -1546,6 +1546,8 @@ const syncPendingCheckpoints = async () => {
       }, 2000); 
     }
   }, [isTestMode]);
+
+
 
   return (
     <View style={styles.container}>

@@ -12,6 +12,9 @@ import {
   RefreshControl,
   TextInput,
   Alert,
+  SafeAreaView,
+  PixelRatio,
+  Platform
 } from "react-native";
 import { Picker } from '@react-native-picker/picker';
 import LinearGradient from "react-native-linear-gradient";
@@ -24,9 +27,9 @@ import EventModel from "../model/EventModel";
 import EventDetailsView from '../components/EventDetailsView';
 import NotificationBell from '../components/NotificationBell';
 
-const { width, height } = Dimensions.get("window");
-const isSmallDevice = width < 375;
-const cardWidth = width * 0.9;
+const { width } = Dimensions.get("window");
+const scale = width / 375;
+const normalize = (size) => Math.round(PixelRatio.roundToNearestPixel(size * scale));
 
 // Join Event Form Component
 const JoinEventForm = ({ event, onClose }) => {
@@ -656,7 +659,7 @@ const OrganiserScreen = ({ navigation, route }) => {
   );
 
   return (
-    <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradient}>
+    <SafeAreaView style={styles.safeArea}>
       {/* Loader overlay */}
       {loading && (
         <View style={styles.loaderContainer}>
@@ -819,11 +822,15 @@ const OrganiserScreen = ({ navigation, route }) => {
           onBack={() => setSelectedEvent(null)} 
         />
       )}
-    </LinearGradient>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#0f2027',
+  },
   gradient: { 
     flex: 1,
     backgroundColor: '#0f2027', // Fallback color
@@ -860,7 +867,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   headerTitle: {
-    fontSize: isSmallDevice ? 22 : 26,
+    fontSize: normalize(26),
     fontWeight: '800',
     color: '#fff',
     letterSpacing: 0.5,
@@ -870,7 +877,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerSubtitle: {
-    fontSize: 15,
+    fontSize: normalize(15),
     color: 'rgba(255, 255, 255, 0.85)',
     marginLeft: 16,
     fontWeight: '600',
@@ -1047,7 +1054,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   eventTitle: {
-    fontSize: 16,
+    fontSize: normalize(16),
     fontWeight: '700',
     color: '#fff',
     marginBottom: 12,
@@ -1251,7 +1258,7 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
   detailTitle: {
-    fontSize: 24,
+    fontSize: normalize(24),
     fontWeight: '800',
     color: '#fff',
     marginBottom: 20,
@@ -1365,14 +1372,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   joinFormTitle: {
-    fontSize: 24,
+    fontSize: normalize(24),
     fontWeight: '800',
     color: '#fff',
     marginBottom: 8,
     textAlign: 'center',
   },
   joinFormSubtitle: {
-    fontSize: 16,
+    fontSize: normalize(16),
     color: '#feb47b',
     fontWeight: '600',
     textAlign: 'center',
@@ -1397,13 +1404,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   eventInfoTitle: {
-    fontSize: 16,
+    fontSize: normalize(16),
     fontWeight: '800',
     color: '#fff',
     marginBottom: 8,
   },
   eventInfoDetail: {
-    fontSize: 13,
+    fontSize: normalize(13),
     color: 'rgba(255, 255, 255, 0.8)',
     fontWeight: '600',
     marginBottom: 4,
@@ -1423,12 +1430,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: normalize(18),
     fontWeight: '800',
     color: '#fff',
   },
   memberCount: {
-    fontSize: 14,
+    fontSize: normalize(14),
     fontWeight: '600',
     color: '#feb47b',
     backgroundColor: 'rgba(254, 180, 123, 0.2)',
@@ -1448,14 +1455,14 @@ const styles = StyleSheet.create({
   },
   addButtonText: {
     color: '#feb47b',
-    fontSize: 12,
+    fontSize: normalize(12),
     fontWeight: '700',
   },
   inputGroup: {
     marginBottom: 16,
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: normalize(14),
     color: 'rgba(255, 255, 255, 0.9)',
     fontWeight: '700',
     marginBottom: 8,
@@ -1468,7 +1475,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 16,
-    fontSize: 16,
+    fontSize: normalize(16),
     color: '#fff',
     fontWeight: '600',
   },
@@ -1487,7 +1494,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   crewMemberTitle: {
-    fontSize: 16,
+    fontSize: normalize(16),
     fontWeight: '800',
     color: '#feb47b',
   },
@@ -1517,14 +1524,14 @@ const styles = StyleSheet.create({
   },
   emptyMembersText: {
     color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 16,
+    fontSize: normalize(16),
     fontWeight: '600',
     marginBottom: 8,
     textAlign: 'center',
   },
   emptyMembersSubtext: {
     color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 14,
+    fontSize: normalize(14),
     fontWeight: '500',
     textAlign: 'center',
     lineHeight: 20,
@@ -1550,7 +1557,7 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: normalize(14),
     fontWeight: 'bold',
     letterSpacing: 0.3,
   },
@@ -1578,7 +1585,7 @@ const styles = StyleSheet.create({
   },
   readOnlyText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: normalize(16),
     fontWeight: '600',
     marginBottom: 2,
   },
@@ -1609,7 +1616,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 14,
+    fontSize: normalize(14),
     fontWeight: '600',
     marginLeft: 8,
   },
