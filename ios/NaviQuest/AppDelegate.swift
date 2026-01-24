@@ -31,6 +31,31 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     return true
   }
+
+  // Handle deep links from naviquest:// scheme
+  func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    return RCTLinking.application(app, open: url, options: options)
+  }
+
+  // Handle universal links (optional for future use)
+  func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if let url = userActivity.webpageURL {
+      return RCTLinking.application(
+        application,
+        continue: userActivity,
+        restorationHandler: restorationHandler
+      )
+    }
+    return false
+  }
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {

@@ -82,8 +82,8 @@ android {
         applicationId "com.vcmapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 68
-        versionName "1.0"
+        versionCode 80
+        versionName "1.1.0"
     }
     signingConfigs {
         debug {

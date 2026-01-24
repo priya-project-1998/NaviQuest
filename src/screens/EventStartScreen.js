@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NotificationBell from '../components/NotificationBell';
 import EventService from "../services/apiService/event_service";
-import { generateShareMessage } from '../utils/deepLinkUtils';
+import { generateShareMessage, storePendingEventId } from '../utils/deepLinkUtils';
 
 const { width } = Dimensions.get("window");
 
@@ -244,21 +244,36 @@ export default function EventStartScreen({ navigation, route }) {
           <View style={styles.featureBtnRow}>
             <TouchableOpacity style={styles.featureBtn} onPress={async () => {
               try {
-                // Generate share message using deep link utility
                 const shareData = generateShareMessage({
                   event_id: eventId,
                   event_name: eventName,
                   event_venue: eventVenue,
                   event_start_date: eventStartDate
                 });
-                
-                await Share.share({
-                  message: shareData.message,
-                  url: shareData.url, // For iOS
-                  title: shareData.title,
+
+                // ✅ TEMPORARY WORKAROUND: Store event ID for auto-open when user installs app
+                await storePendingEventId(eventId);
+
+                // Platform-specific share handling with HTTPS store URL
+                const shareOptions = Platform.select({
+                  android: {
+                    title: shareData.title,
+                    message: `${shareData.message}\n${shareData.url}`
+                  },
+                  ios: {
+                    title: shareData.title,
+                    message: shareData.message,
+                    url: shareData.url
+                  }
                 });
+
+                const result = await Share.share(shareOptions);
+                
+                if (result.action === Share.dismissedAction) {
+                  console.log('Share was dismissed');
+                }
               } catch (error) {
-                Alert.alert('Error', 'Failed to share event');
+                Alert.alert('Share Error', 'Failed to share event');
               }
             }}>
               <LinearGradient colors={["#43cea2", "#185a9d"]} style={styles.featureBtnGradient}>
