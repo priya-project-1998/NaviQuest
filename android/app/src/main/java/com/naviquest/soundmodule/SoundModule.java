@@ -31,59 +31,89 @@ public class SoundModule extends ReactContextBaseJavaModule {
         try {
             // Get the resource identifier for the sound file
             Context context = reactContext.getApplicationContext();
+            
+            Log.d("SoundModule", "=== playSound called ===");
+            Log.d("SoundModule", "soundName: " + soundName);
+            Log.d("SoundModule", "Package name: " + context.getPackageName());
+            
             int resId = context.getResources().getIdentifier(
                     soundName, "raw", context.getPackageName());
 
+            Log.d("SoundModule", "Resource ID lookup result: " + resId);
+            
             if (resId == 0) {
+                Log.e("SoundModule", "❌ Sound resource NOT found for: " + soundName);
+                Log.e("SoundModule", "Available raw resources should include: event_start, checkpoint, event_end, over_speed, time_frame_limit");
                 promise.reject("SOUND_NOT_FOUND", "Sound resource not found: " + soundName);
                 return;
             }
+            
+            Log.d("SoundModule", "✅ Found resource ID: " + resId + " for sound: " + soundName);
 
             // Release any existing media player
             if (mediaPlayer != null) {
-                mediaPlayer.release();
+                try {
+                    mediaPlayer.release();
+                    Log.d("SoundModule", "Previous MediaPlayer released");
+                } catch (Exception e) {
+                    Log.w("SoundModule", "Error releasing previous MediaPlayer: " + e.getMessage());
+                }
                 mediaPlayer = null;
             }
 
             // Create and play the new sound with enhanced audio settings
             mediaPlayer = MediaPlayer.create(context, resId);
             if (mediaPlayer == null) {
+                Log.e("SoundModule", "❌ Failed to create MediaPlayer for: " + soundName);
                 promise.reject("MEDIA_PLAYER_ERROR", "Failed to create MediaPlayer for: " + soundName);
                 return;
             }
+            
+            Log.d("SoundModule", "✅ MediaPlayer created successfully for: " + soundName);
             
             // Set audio attributes for notification sound (better audio focus handling)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 mediaPlayer.setAudioAttributes(
                         new android.media.AudioAttributes.Builder()
-                                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
                                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
                                 .build());
+                Log.d("SoundModule", "Audio attributes set");
             }
             
             // Set max volume
             mediaPlayer.setVolume(1.0f, 1.0f);
+            Log.d("SoundModule", "Volume set to 1.0");
             
             mediaPlayer.setOnCompletionListener(mp -> {
-                mp.release();
+                Log.d("SoundModule", "✅ Sound playback completed for: " + soundName);
+                try {
+                    mp.release();
+                } catch (Exception e) {
+                    Log.w("SoundModule", "Error releasing MediaPlayer on completion: " + e.getMessage());
+                }
                 mediaPlayer = null;
                 promise.resolve("Sound played successfully");
             });
             
             mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-                mp.release();
+                Log.e("SoundModule", "❌ MediaPlayer error - what: " + what + ", extra: " + extra);
+                try {
+                    mp.release();
+                } catch (Exception e) {
+                    Log.w("SoundModule", "Error releasing MediaPlayer on error: " + e.getMessage());
+                }
                 mediaPlayer = null;
                 promise.reject("PLAYBACK_ERROR", "Failed to play sound: " + what);
                 return true;
             });
 
             mediaPlayer.start();
-            
-            // Log success
-            Log.d("SoundModule", "Started playing sound: " + soundName);
+            Log.d("SoundModule", "✅ Started playing sound: " + soundName);
             
         } catch (Exception e) {
-            Log.e("SoundModule", "Error playing sound: " + e.getMessage(), e);
+            Log.e("SoundModule", "❌ Exception in playSound: " + e.getMessage(), e);
+            e.printStackTrace();
             promise.reject("SOUND_ERROR", "Error playing sound: " + e.getMessage(), e);
         }
     }
@@ -146,11 +176,12 @@ public class SoundModule extends ReactContextBaseJavaModule {
                 Log.d("SoundModule", "Volume set to: " + safeVolume);
                 promise.resolve("Volume set successfully");
             } else {
-                promise.reject("NO_PLAYER", "No active media player to set volume");
+                Log.w("SoundModule", "No active media player to set volume");
+                promise.resolve("No active media player to set volume");
             }
         } catch (Exception e) {
             Log.e("SoundModule", "Error setting volume: " + e.getMessage(), e);
-            promise.reject("VOLUME_ERROR", "Error setting volume: " + e.getMessage(), e);
+            promise.resolve("Error setting volume - resolved safely: " + e.getMessage());
         }
     }
 }

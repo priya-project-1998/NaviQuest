@@ -31,32 +31,46 @@ public class SoundModule extends ReactContextBaseJavaModule {
         try {
             // Get the resource identifier for the sound file
             Context context = reactContext.getApplicationContext();
+            
+            // Log the request
+            Log.d("SoundModule", "playSound called with soundName: " + soundName);
+            
             int resId = context.getResources().getIdentifier(
                     soundName, "raw", context.getPackageName());
 
             if (resId == 0) {
+                Log.e("SoundModule", "Sound resource not found for: " + soundName);
                 promise.reject("SOUND_NOT_FOUND", "Sound resource not found: " + soundName);
                 return;
             }
+            
+            Log.d("SoundModule", "Found resource ID: " + resId + " for sound: " + soundName);
 
             // Release any existing media player
             if (mediaPlayer != null) {
-                mediaPlayer.release();
+                try {
+                    mediaPlayer.release();
+                } catch (Exception e) {
+                    Log.w("SoundModule", "Error releasing previous MediaPlayer: " + e.getMessage());
+                }
                 mediaPlayer = null;
             }
 
             // Create and play the new sound with enhanced audio settings
             mediaPlayer = MediaPlayer.create(context, resId);
             if (mediaPlayer == null) {
+                Log.e("SoundModule", "Failed to create MediaPlayer for: " + soundName);
                 promise.reject("MEDIA_PLAYER_ERROR", "Failed to create MediaPlayer for: " + soundName);
                 return;
             }
+            
+            Log.d("SoundModule", "MediaPlayer created successfully for: " + soundName);
             
             // Set audio attributes for notification sound (better audio focus handling)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 mediaPlayer.setAudioAttributes(
                         new android.media.AudioAttributes.Builder()
-                                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
                                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
                                 .build());
             }
@@ -65,13 +79,23 @@ public class SoundModule extends ReactContextBaseJavaModule {
             mediaPlayer.setVolume(1.0f, 1.0f);
             
             mediaPlayer.setOnCompletionListener(mp -> {
-                mp.release();
+                Log.d("SoundModule", "Sound playback completed for: " + soundName);
+                try {
+                    mp.release();
+                } catch (Exception e) {
+                    Log.w("SoundModule", "Error releasing MediaPlayer on completion: " + e.getMessage());
+                }
                 mediaPlayer = null;
                 promise.resolve("Sound played successfully");
             });
             
             mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-                mp.release();
+                Log.e("SoundModule", "MediaPlayer error: " + what + ", extra: " + extra);
+                try {
+                    mp.release();
+                } catch (Exception e) {
+                    Log.w("SoundModule", "Error releasing MediaPlayer on error: " + e.getMessage());
+                }
                 mediaPlayer = null;
                 promise.reject("PLAYBACK_ERROR", "Failed to play sound: " + what);
                 return true;

@@ -169,54 +169,6 @@ function DrawerNavigator() {
       <Drawer.Screen name="Privacy Policy" component={PrivacyPolicyScreen} />
       <Drawer.Screen name="Terms & Condition" component={TermsConditionScreen} />
       <Drawer.Screen name="About App" component={AboutAppScreen} />
-      <Drawer.Screen 
-        name="Delete Accounts" 
-        component={() => null}
-        options={{
-          drawerLabel: 'Delete Account',
-          // drawerIcon: ({ color, size }) => (
-          //   <Icon name="delete-outline" color={color} size={size} />
-          // ),
-          // drawerItemStyle: { marginTop: 8, backgroundColor: '#fff0f0' },
-          // drawerLabelStyle: { color: '#d32f2f', fontWeight: 'bold' },
-        }}
-        listeners={({ navigation }) => ({
-          drawerItemPress: (e) => {
-            e.preventDefault();
-            // Import AuthService and Alert at the top if not already
-            import('../services/apiService/auth_service').then(({ default: AuthService }) => {
-              import('react-native').then(({ Alert }) => {
-                Alert.alert(
-                  'Confirm Delete',
-                  'Are you sure you want to delete your account? This action cannot be undone.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete',
-                      onPress: async () => {
-                        try {
-                          const response = await AuthService.deleteAccount();
-                          if (response.status === 200) {
-                            // Immediately call logout functionality after successful delete
-                            AuthService.logout().then(() => {
-                              navigation.replace('LoginScreen');
-                              Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
-                            });
-                          } else {
-                            Alert.alert('Error', 'Failed to delete account. Please try again.');
-                          }
-                        } catch (error) {
-                          Alert.alert('Error', 'An error occurred while deleting your account.');
-                        }
-                      },
-                    },
-                  ]
-                );
-              });
-            });
-          },
-        })}
-      />
     </Drawer.Navigator>
   );
 }

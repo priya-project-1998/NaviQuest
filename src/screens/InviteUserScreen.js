@@ -3,33 +3,55 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   Alert,
   ScrollView,
   Share,
+  Platform,
+  Linking,
+  Dimensions,
+  SafeAreaView,
+  StatusBar,
+  useWindowDimensions,
 } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
+import deepLinkUtils from "../utils/deepLinkUtils";
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+
+// Determine device type
+const isSmallDevice = screenWidth < 375;
+const isMediumDevice = screenWidth >= 375 && screenWidth < 415;
+const isLargeDevice = screenWidth >= 415;
 
 const InviteUserScreen = () => {
-  const [inviteTo, setInviteTo] = useState("");
-  const [message, setMessage] = useState("");
+  const getAppShareMessage = () => {
+    const downloadLink = Platform.OS === "ios" ? deepLinkUtils.APP_STORE_URL : deepLinkUtils.PLAY_STORE_URL;
+    return `Join us on NaviQuest! Experience amazing Motorsports events in India. \nDownload here: ${downloadLink}`;
+  };
 
-  const handleInvite = () => {
-    if (!inviteTo.trim()) {
-      Alert.alert("Error", "Please enter an email or phone number to invite.");
-      return;
+  const handleShareViaWhatsApp = async () => {
+    try {
+      const appShareMessage = getAppShareMessage();
+      const url = `whatsapp://send?text=${encodeURIComponent(appShareMessage)}`;
+      const canOpen = await Linking.canOpenURL(url);
+      
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert("Error", "WhatsApp is not installed on this device.");
+      }
+    } catch (error) {
+      Alert.alert("Error", "Unable to open WhatsApp.");
     }
-    Alert.alert("Invitation Sent", `Invitation sent to: ${inviteTo}`);
-    setInviteTo("");
-    setMessage("");
   };
 
   const handleShareApp = async () => {
     try {
+      const appShareMessage = getAppShareMessage();
       await Share.share({
-        message:
-          "Join us on NaviQuest Experience amazing Trail Hunt events in India. \nDownload here: https://rajasthanmotorsports.com/download",
+        message: appShareMessage,
+        title: "Share NaviQuest",
       });
     } catch (error) {
       Alert.alert("Error", "Unable to share the app link.");
@@ -37,51 +59,50 @@ const InviteUserScreen = () => {
   };
 
   return (
-    <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-        <View style={styles.container}>
-          <Text style={styles.heading}>Invite a Friend</Text>
-          <Text style={styles.subHeading}>
-            Share the excitement of NaviQuest with your friends! Invite them to join and experience racing events.
-          </Text>
+    <SafeAreaView style={{ flex: 1 }}>
+      <StatusBar
+        barStyle={Platform.OS === "ios" ? "light-content" : "light-content"}
+        backgroundColor="transparent"
+        translucent={Platform.OS === "android"}
+      />
+      <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={{ flex: 1 }}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          keyboardShouldPersistTaps="handled"
+          scrollEnabled={true}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.container}>
+            <Text style={styles.heading}>Share NaviQuest</Text>
+            <Text style={styles.subHeading}>
+              Share the excitement of NaviQuest with your friends! Invite them to join and experience racing events.
+            </Text>
 
-          {/* Email or Phone Input */}
-          <TextInput
-            style={styles.input}
-            placeholder="Enter friend's email or phone number"
-            placeholderTextColor="#aaa"
-            value={inviteTo}
-            onChangeText={setInviteTo}
-            keyboardType="email-address"
-          />
+            {/* WhatsApp Share Button */}
+            <TouchableOpacity
+              onPress={handleShareViaWhatsApp}
+              style={styles.buttonWrapper}
+              activeOpacity={0.7}
+            >
+              <LinearGradient colors={["#25D366", "#20BA5C"]} style={styles.shareButton}>
+                <Text style={styles.shareButtonText}>Share via WhatsApp</Text>
+              </LinearGradient>
+            </TouchableOpacity>
 
-          {/* Optional Message */}
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Add a personal message (optional)"
-            placeholderTextColor="#aaa"
-            value={message}
-            onChangeText={setMessage}
-            multiline
-            numberOfLines={4}
-          />
-
-          {/* Invite Button */}
-          <TouchableOpacity onPress={handleInvite} style={{ width: "100%", marginTop: 20 }}>
-            <LinearGradient colors={["#ff7e5f", "#feb47b"]} style={styles.inviteButton}>
-              <Text style={styles.inviteText}>Send Invitation</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          {/* Share App Link Button */}
-          <TouchableOpacity onPress={handleShareApp} style={{ width: "100%", marginTop: 15 }}>
-            <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.inviteButton}>
-              <Text style={styles.inviteText}>Share App Link</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </LinearGradient>
+            {/* More Share Options Button */}
+            <TouchableOpacity
+              onPress={handleShareApp}
+              style={styles.buttonWrapper}
+              activeOpacity={0.7}
+            >
+              <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.shareButton}>
+                <Text style={styles.shareButtonText}>More Share Options</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </LinearGradient>
+    </SafeAreaView>
   );
 };
 
@@ -90,47 +111,62 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    paddingHorizontal: isSmallDevice ? 12 : 16,
+    paddingVertical: isSmallDevice ? 12 : isLargeDevice ? 20 : 16,
   },
   container: {
     width: "100%",
+    maxWidth: 480,
     alignItems: "center",
+    justifyContent: "center",
   },
   heading: {
-    fontSize: 26,
-    fontWeight: "bold",
+    fontSize: isSmallDevice ? 24 : isMediumDevice ? 28 : 32,
+    fontWeight: "700",
     color: "#ff7e5f",
-    marginBottom: 10,
+    marginBottom: isSmallDevice ? 8 : 12,
     textAlign: "center",
+    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
   },
   subHeading: {
-    fontSize: 16,
+    fontSize: isSmallDevice ? 13 : isMediumDevice ? 15 : 16,
     color: "#fff",
-    marginBottom: 20,
+    marginBottom: isSmallDevice ? 20 : isMediumDevice ? 24 : 28,
     textAlign: "center",
+    lineHeight: isSmallDevice ? 20 : 24,
+    paddingHorizontal: 8,
+    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
   },
-  input: {
+  buttonWrapper: {
     width: "100%",
-    backgroundColor: "rgba(255,255,255,0.15)",
-    borderRadius: 10,
-    padding: 10,
-    color: "#fff",
-    fontSize: 14,
-    marginBottom: 15,
+    marginTop: isSmallDevice ? 10 : 12,
+    paddingHorizontal: 12,
   },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: "top",
-  },
-  inviteButton: {
-    paddingVertical: 14,
+  shareButton: {
+    paddingVertical: isSmallDevice ? 12 : isMediumDevice ? 14 : 16,
+    paddingHorizontal: 16,
     borderRadius: 10,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: isSmallDevice ? 48 : 52,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
-  inviteText: {
+  shareButtonText: {
     color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
+    fontWeight: "600",
+    fontSize: isSmallDevice ? 13 : isMediumDevice ? 15 : 16,
+    textAlign: "center",
+    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
   },
 });
 

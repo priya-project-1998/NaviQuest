@@ -27,31 +27,47 @@ class EnhancedVoiceAlertUtils {
   playAlert(eventType) {
     // Only play on Android
     if (!this.isAndroid) return;
+    
+    console.log('PlayAlert called with eventType:', eventType);
+    
+    // Check if SoundModule is available
+    if (!NativeModules.SoundModule) {
+      console.warn('SoundModule not available - cannot play sound');
+      return;
+    }
         
     // Safe wrapper function that never throws or rejects
     const safePlay = async (soundName) => {
       try {
-        // First safely release any previous sounds
-        await this.release();
+        console.log('Attempting to play sound:', soundName);
+        console.log('Calling NativeModules.SoundModule.playSound with:', soundName);
         
-        // After release, play the new sound if module exists
-        if (NativeModules.SoundModule) {
-          try {
-            const result = await NativeModules.SoundModule.playSound(soundName);
-          } catch (playError) {
-            // Just log errors but don't propagate them
-            console.log(`Non-critical error playing sound ${soundName}:`, playError);
-          }
+        try {
+          const result = await NativeModules.SoundModule.playSound(soundName);
+          console.log('Sound played successfully:', soundName, result);
+        } catch (playError) {
+          // Just log errors but don't propagate them
+          console.error(`Error playing sound ${soundName}:`, playError);
         }
       } catch (error) {
-        // This should never happen with our safe release() method, but just in case
-        console.log(`Safely handled error in playAlert sequence:`, error);
+        // This should never happen, but just in case
+        console.error(`Safely handled error in playAlert sequence:`, error);
       }
     };
     
-    // Convert EVENT_START to event_start format for file names
-    const soundName = eventType.toLowerCase();
-     safePlay(soundName);
+    // Sound names must match the file names in android/app/src/main/res/raw/ (without .mp3 extension)
+    // Map event types to exact sound file names
+    const soundNameMap = {
+      'event_start': 'event_start',
+      'checkpoint': 'checkpoint',
+      'event_end': 'event_end',
+      'over_speed': 'over_speed',
+      'time_frame_limit': 'time_frame_limit'
+    };
+    
+    const soundName = soundNameMap[eventType.toLowerCase()] || eventType.toLowerCase();
+    console.log('Mapped eventType:', eventType, 'to soundName:', soundName);
+    safePlay(soundName);
   }
   
   // Event start notification

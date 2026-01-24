@@ -312,7 +312,7 @@ const ResultsScreen = () => {
                     <View style={styles.eventTextContainer}>
                       <Text style={styles.eventTitle}>{event.event_name}</Text>
                       <Text style={styles.eventSubtitle}>
-                        {loadingEventId === event.event_id ? "Loading..." : `📊 Event ID: ${event.event_id} • Tap to view results`}
+                        {loadingEventId === event.event_id ? "Loading..." : `📊 Tap to view results`}
                       </Text>
                     </View>
                     <View style={styles.eventArrowContainer}>

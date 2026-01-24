@@ -4,34 +4,6 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { DrawerContentScrollView } from '@react-navigation/drawer';
 import { useSelector } from 'react-redux';
 import { RootState } from '../redux/store';
-import AuthService from '../services/apiService/auth_service';
-
-const handleDeleteAccount = async (navigation: any) => {
-  Alert.alert(
-    'Confirm Delete',
-    'Are you sure you want to delete your account? This action cannot be undone.',
-    [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        onPress: async () => {
-          try {
-            const response = await AuthService.deleteAccount();
-            if (response.status === 200) {
-              Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
-              navigation.replace('LoginScreen');
-            } else {
-              Alert.alert('Error', 'Failed to delete account. Please try again.');
-            }
-          } catch (error) {
-            Alert.alert('Error', 'An error occurred while deleting your account.');
-          }
-        },
-      },
-    ]
-  );
-};
-
 const menuItems = [
   { icon: 'account', label: 'Profile', screen: 'Profile' },
   { icon: 'magnify', label: 'Search', screen: 'Search' },
@@ -44,7 +16,6 @@ const menuItems = [
   { icon: 'star-outline', label: 'Rate us', screen: 'Rate Us' },
   { icon: 'shield-outline', label: 'Privacy Policy', screen: 'Privacy Policy' },
   { icon: 'map-marker-radius-outline', label: 'Location Permission Policy', screen: 'Location Permission Policy' },
-  { icon: 'delete-outline', label: 'Delete Account', screen: 'DeleteAccount', action: handleDeleteAccount },
   { icon: 'power', label: 'Logout', screen: 'Logout' },
 ];
 
@@ -65,11 +36,7 @@ export default function CustomDrawerContent({ navigation }: any) {
             key={item.label}
             style={styles.menuItem}
             onPress={() => {
-              if (item.action) {
-                item.action(navigation);
-              } else {
-                navigation.navigate(item.screen);
-              }
+              navigation.navigate(item.screen);
             }}
           >
             <Icon name={item.icon} size={20} color="#6a1b9a" style={styles.icon} />
