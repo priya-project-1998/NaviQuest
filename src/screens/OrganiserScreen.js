@@ -729,7 +729,7 @@ const OrganiserScreen = ({ navigation, route }) => {
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={viewTab === "upcoming" ? ['#feb47b', '#ff7e5f'] : ['transparent', 'transparent']}
+                colors={viewTab === "upcoming" ? ['#feb47b', '#ff7e5f'] : ['#203a43', '#2c5364']}
                 style={styles.tabGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
@@ -753,7 +753,7 @@ const OrganiserScreen = ({ navigation, route }) => {
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={viewTab === "completed" ? ['#feb47b', '#ff7e5f'] : ['transparent', 'transparent']}
+                colors={viewTab === "completed" ? ['#feb47b', '#ff7e5f'] : ['#203a43', '#2c5364']}
                 style={styles.tabGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
@@ -925,17 +925,18 @@ const styles = StyleSheet.create({
   // Tab Styles
   tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    gap: 12,
+    paddingHorizontal: normalize(12),
+    paddingVertical: normalize(10),
+    gap: normalize(8),
+    justifyContent: 'space-between',
   },
   tab: {
     flex: 1,
-    borderRadius: 12,
+    minWidth: 0,
+    borderRadius: normalize(12),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowOffset: { width: 0, height: 1 },
@@ -943,15 +944,18 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   tabGradient: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  tabContent: {
-    flexDirection: 'row',
+    paddingVertical: normalize(11),
+    paddingHorizontal: normalize(10),
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    width: '100%',
+  },
+  tabContent: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: normalize(2),
+    width: '100%',
   },
   activeTab: {
     borderColor: '#feb47b',
@@ -964,9 +968,10 @@ const styles = StyleSheet.create({
   tabText: {
     color: 'rgba(255, 255, 255, 0.8)',
     fontWeight: '600',
-    fontSize: 13,
-    letterSpacing: 0.3,
+    fontSize: normalize(11),
+    letterSpacing: 0.2,
     textAlign: 'center',
+    flexShrink: 1,
   },
   activeTabText: {
     color: '#fff',
@@ -976,20 +981,20 @@ const styles = StyleSheet.create({
     textShadowRadius: 1,
   },
   countBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    minWidth: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderRadius: normalize(10),
+    paddingHorizontal: normalize(6),
+    paddingVertical: normalize(2),
+    minWidth: normalize(22),
     alignItems: 'center',
     justifyContent: 'center',
   },
   activeCountBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
   countText: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.95)',
+    fontSize: normalize(9),
     fontWeight: '700',
   },
   activeCountText: {

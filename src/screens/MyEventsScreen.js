@@ -13,13 +13,14 @@ import {
   ScrollView,
   SafeAreaView,
   PixelRatio,
-  Platform
+  Platform,
+  Alert
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import LinearGradient from "react-native-linear-gradient";
 import EventService from "../services/apiService/event_service";
 import NotificationBell from '../components/NotificationBell';
-import { generateShareMessage } from '../utils/deepLinkUtils';
+import { generateShareMessage, storePendingEventId } from '../utils/deepLinkUtils';
 
 const { width } = Dimensions.get("window");
 const scale = width / 375;
@@ -136,25 +137,36 @@ export default function MyEventsScreen({ navigation }) {
 
     const onShare = async () => {
       try {
-        if (typeof Share?.share === 'function') {
-          // Generate share message using deep link utility
-          const shareData = generateShareMessage({
-            event_id: item.event_id,
-            event_name: eventName,
-            event_venue: eventVenue,
-            event_start_date: item.event_start_date
-          });
-          
-          await Share.share({
-            message: shareData.message,
-            url: shareData.url, // For iOS
+        const shareData = generateShareMessage({
+          event_id: item.event_id,
+          event_name: eventName,
+          event_venue: eventVenue,
+          event_start_date: item.event_start_date
+        });
+
+        // ✅ Store event ID for auto-open when user installs app
+        await storePendingEventId(item.event_id);
+
+        // Platform-specific share handling with HTTPS store URL
+        const shareOptions = Platform.select({
+          android: {
             title: shareData.title,
-          });
-        } else {
-          alert('Share feature is not available on this device.');
+            message: `${shareData.message}\n${shareData.url}`
+          },
+          ios: {
+            title: shareData.title,
+            message: shareData.message,
+            url: shareData.url
+          }
+        });
+
+        const result = await Share.share(shareOptions);
+        
+        if (result.action === Share.dismissedAction) {
+          console.log('Share was dismissed');
         }
       } catch (error) {
-        alert('Unable to share event: ' + (error?.message || error));
+        Alert.alert('Share Error', 'Failed to share event');
       }
     };
 
