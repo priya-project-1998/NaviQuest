@@ -38,7 +38,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    return RCTLinking.application(app, open: url, options: options)
+    return RCTLinkingManager.application(app, open: url, options: options)
   }
 
   // Handle universal links (optional for future use)
@@ -48,7 +48,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
   ) -> Bool {
     if let url = userActivity.webpageURL {
-      return RCTLinking.application(
+      return RCTLinkingManager.application(
         application,
         continue: userActivity,
         restorationHandler: restorationHandler
