@@ -17,6 +17,7 @@ import {
   Linking,
   Vibration,
 } from "react-native";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from "react-native-maps";
 import Geolocation from "@react-native-community/geolocation";
 import NetInfo from "@react-native-community/netinfo";
@@ -38,6 +39,7 @@ import EnhancedVoiceAlertUtils from '../utils/EnhancedVoiceAlertUtils';
 
 const { width, height } = Dimensions.get("window");
 const MapScreen = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets(); // ✅ Get safe area insets for iOS notch/Dynamic Island
   const mapRef = useRef(null);
   const [lastUserLocation, setLastUserLocation] = useState(null);
   const [userCoords, setUserCoords] = useState(null);
@@ -1714,8 +1716,8 @@ const syncPendingCheckpoints = async () => {
   return (
     <View style={styles.container}>
       
-      {/* Top Left Info Bar */}
-      <View style={styles.infoBar}>
+      {/* Top Left Info Bar - ✅ Fixed for iOS notch/Dynamic Island */}
+      <View style={[styles.infoBar, { top: Platform.OS === 'ios' ? insets.top + 5 : 10 }]}>
         <Text style={[
           styles.infoText,
           {
@@ -1764,8 +1766,8 @@ const syncPendingCheckpoints = async () => {
 
       
 
-      {/* Top Right Layers Button */}
-      <View style={styles.topRightContainer}>
+      {/* Top Right Layers Button - ✅ Fixed for iOS notch/Dynamic Island */}
+      <View style={[styles.topRightContainer, { top: Platform.OS === 'ios' ? insets.top + 5 : 10 }]}>
         
         
         {/* Abort Event Button */}

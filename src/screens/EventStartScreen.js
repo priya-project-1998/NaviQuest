@@ -397,18 +397,6 @@ export default function EventStartScreen({ navigation, route }) {
          
         </View>
 
-        {/* Testing Button - For Development Only */}
-         <TouchableOpacity
-          style={styles.testingBtn}
-          onPress={() => {
-            handleStartEvent();
-          }}
-        >
-          <LinearGradient colors={["#FF6B6B", "#EE5A6F"]} style={styles.testingBtnGradient}>
-            <Text style={styles.testingBtnText}>🧪 TEST START (Dev Only)</Text>
-          </LinearGradient>
-        </TouchableOpacity>   
-
         {/* Location Info */}
         <View style={styles.locationInfoRow}>
           <Text style={styles.locationInfoText}>

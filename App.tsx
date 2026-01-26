@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { StatusBar, useColorScheme, Linking } from 'react-native';
 import { Provider } from 'react-redux';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { store } from './src/redux/store';
 import AppNavigator from './src/navigation/AppNavigator';
 import { handleIncomingDeepLink, getPendingEventId, clearPendingEventId } from './src/utils/deepLinkUtils';
@@ -71,10 +72,12 @@ function App() {
   }, []);
 
   return (
-    <Provider store={store}>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppNavigator ref={navigationRef} />
-    </Provider>
+    <SafeAreaProvider>
+      <Provider store={store}>
+        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+        <AppNavigator ref={navigationRef} />
+      </Provider>
+    </SafeAreaProvider>
   );
 }
 
