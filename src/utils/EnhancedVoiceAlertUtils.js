@@ -1,12 +1,14 @@
 import { Platform, NativeModules } from 'react-native';
 
-// Enhanced Voice Alert Utility with sound for Android only
-// Using native sound module to avoid dependency issues
+// Enhanced Voice Alert Utility with sound for Android and iOS
+// Using native sound module for both platforms
 class EnhancedVoiceAlertUtils {
   constructor() {
     // Initialize sound objects
     this.sounds = {};
     this.isAndroid = Platform.OS === 'android';
+    this.isIOS = Platform.OS === 'ios';
+    this.isMobile = this.isAndroid || this.isIOS;
     
     // Define the event types
     this.eventTypes = {
@@ -17,18 +19,25 @@ class EnhancedVoiceAlertUtils {
       TIME_FRAME_LIMIT: 'time_frame_limit'
     };
     
-    // Pre-load sounds on Android only
-    if (this.isAndroid) {
-      console.log('EnhancedVoiceAlertUtils initialized - using native sound module');
+    // Initialize sound module for both Android and iOS
+    if (this.isMobile) {
+      console.log(`EnhancedVoiceAlertUtils initialized on ${Platform.OS} - using native sound module`);
+      
+      // Check if SoundModule is available
+      if (NativeModules.SoundModule) {
+        console.log('SoundModule is available');
+      } else {
+        console.warn('SoundModule is NOT available - voice alerts will not work');
+      }
     }
   }
   
-  // Play alert with sound only for Android
+  // Play alert with sound for Android and iOS
   playAlert(eventType) {
-    // Only play on Android
-    if (!this.isAndroid) return;
+    // Only play on mobile platforms (Android and iOS)
+    if (!this.isMobile) return;
     
-    console.log('PlayAlert called with eventType:', eventType);
+    console.log('PlayAlert called with eventType:', eventType, 'on platform:', Platform.OS);
     
     // Check if SoundModule is available
     if (!NativeModules.SoundModule) {
@@ -72,35 +81,35 @@ class EnhancedVoiceAlertUtils {
   
   // Event start notification
   notifyEventStart() {
-    if (this.isAndroid) {
+    if (this.isMobile) {
       this.playAlert(this.eventTypes.EVENT_START);
     }
   }
   
   // Checkpoint reached notification
   notifyCheckpoint() {
-    if (this.isAndroid) {
+    if (this.isMobile) {
       this.playAlert(this.eventTypes.CHECKPOINT);
     }
   }
   
   // Event end notification
   notifyEventEnd() {
-    if (this.isAndroid) {
+    if (this.isMobile) {
       this.playAlert(this.eventTypes.EVENT_END);
     }
   }
   
   // Over speed notification
   notifyOverSpeed() {
-    if (this.isAndroid) {
+    if (this.isMobile) {
       this.playAlert(this.eventTypes.OVER_SPEED);
     }
   }
   
   // Time frame limit notification
   notifyTimeFrameLimit() {
-    if (this.isAndroid) {
+    if (this.isMobile) {
       this.playAlert(this.eventTypes.TIME_FRAME_LIMIT);
     }
   }
@@ -109,9 +118,9 @@ class EnhancedVoiceAlertUtils {
   release() {
     // Return a promise for proper chaining
     return new Promise((resolve) => {
-      if (!this.isAndroid) {
-        // Resolve immediately on non-Android platforms
-        resolve("Not on Android platform");
+      if (!this.isMobile) {
+        // Resolve immediately on non-mobile platforms
+        resolve("Not on mobile platform");
         return;
       }
       
@@ -155,21 +164,21 @@ class EnhancedVoiceAlertUtils {
   
   // Force stop any ongoing sound playback
   forceStop() {
-    if (!this.isAndroid) return Promise.resolve("Not on Android platform");
+    if (!this.isMobile) return Promise.resolve("Not on mobile platform");
     return this.release();
   }
   
   // Stop speaking (alias for release)
   stopSpeaking() {
-    if (!this.isAndroid) return Promise.resolve("Not on Android platform");
+    if (!this.isMobile) return Promise.resolve("Not on mobile platform");
     return this.release();
   }
   
   // Set volume level (0.0 - 1.0)
   setVolume(volume = 1.0) {
     return new Promise((resolve) => {
-      if (!this.isAndroid) {
-        resolve("Not on Android platform");
+      if (!this.isMobile) {
+        resolve("Not on mobile platform");
         return;
       }
       
@@ -233,7 +242,7 @@ class EnhancedVoiceAlertUtils {
   }
   
   testAllAlerts() {
-    if (!this.isAndroid) return;
+    if (!this.isMobile) return;
     setTimeout(() => this.notifyEventStart(), 0);
     setTimeout(() => this.notifyCheckpoint(), 2000);
     setTimeout(() => this.notifyOverSpeed(), 4000);

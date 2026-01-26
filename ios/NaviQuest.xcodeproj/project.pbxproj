@@ -12,6 +12,14 @@
 		28767B762433964F9A398F4A /* libPods-NaviQuest.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BFE9F160AB878BE1B7C7394F /* libPods-NaviQuest.a */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		SOUND001A00000001 /* SoundModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000002 /* SoundModule.swift */; };
+		SOUND001A00000003 /* SoundModule.m in Sources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000004 /* SoundModule.m */; };
+		SOUND001A00000010 /* event_start.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000011 /* event_start.mp3 */; };
+		SOUND001A00000012 /* checkpoint.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000013 /* checkpoint.mp3 */; };
+		SOUND001A00000014 /* event_end.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000015 /* event_end.mp3 */; };
+		SOUND001A00000016 /* over_speed.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000017 /* over_speed.mp3 */; };
+		SOUND001A00000018 /* time_frame_limit.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000019 /* time_frame_limit.mp3 */; };
+		SOUND001A00000020 /* beep.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = SOUND001A00000021 /* beep.mp3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +33,15 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = NaviQuest/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		BFE9F160AB878BE1B7C7394F /* libPods-NaviQuest.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-NaviQuest.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		SOUND001A00000002 /* SoundModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SoundModule.swift; path = NaviQuest/SoundModule.swift; sourceTree = "<group>"; };
+		SOUND001A00000004 /* SoundModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SoundModule.m; path = NaviQuest/SoundModule.m; sourceTree = "<group>"; };
+		SOUND001A00000005 /* NaviQuest-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "NaviQuest-Bridging-Header.h"; path = "NaviQuest/NaviQuest-Bridging-Header.h"; sourceTree = "<group>"; };
+		SOUND001A00000011 /* event_start.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = event_start.mp3; path = NaviQuest/Sounds/event_start.mp3; sourceTree = "<group>"; };
+		SOUND001A00000013 /* checkpoint.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = checkpoint.mp3; path = NaviQuest/Sounds/checkpoint.mp3; sourceTree = "<group>"; };
+		SOUND001A00000015 /* event_end.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = event_end.mp3; path = NaviQuest/Sounds/event_end.mp3; sourceTree = "<group>"; };
+		SOUND001A00000017 /* over_speed.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = over_speed.mp3; path = NaviQuest/Sounds/over_speed.mp3; sourceTree = "<group>"; };
+		SOUND001A00000019 /* time_frame_limit.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = time_frame_limit.mp3; path = NaviQuest/Sounds/time_frame_limit.mp3; sourceTree = "<group>"; };
+		SOUND001A00000021 /* beep.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = beep.mp3; path = NaviQuest/Sounds/beep.mp3; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,8 +59,12 @@
 		13B07FAE1A68108700A75B9A /* NaviQuest */ = {
 			isa = PBXGroup;
 			children = (
+				SOUND001A00000030 /* Sounds */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				SOUND001A00000002 /* SoundModule.swift */,
+				SOUND001A00000004 /* SoundModule.m */,
+				SOUND001A00000005 /* NaviQuest-Bridging-Header.h */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -96,6 +117,19 @@
 				519E510F35606C8FEB4886DF /* Pods-NaviQuest.release.xcconfig */,
 			);
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		SOUND001A00000030 /* Sounds */ = {
+			isa = PBXGroup;
+			children = (
+				SOUND001A00000011 /* event_start.mp3 */,
+				SOUND001A00000013 /* checkpoint.mp3 */,
+				SOUND001A00000015 /* event_end.mp3 */,
+				SOUND001A00000017 /* over_speed.mp3 */,
+				SOUND001A00000019 /* time_frame_limit.mp3 */,
+				SOUND001A00000021 /* beep.mp3 */,
+			);
+			name = Sounds;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -161,6 +195,12 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				2558998DB23071E7725CC76F /* PrivacyInfo.xcprivacy in Resources */,
+				SOUND001A00000010 /* event_start.mp3 in Resources */,
+				SOUND001A00000012 /* checkpoint.mp3 in Resources */,
+				SOUND001A00000014 /* event_end.mp3 in Resources */,
+				SOUND001A00000016 /* over_speed.mp3 in Resources */,
+				SOUND001A00000018 /* time_frame_limit.mp3 in Resources */,
+				SOUND001A00000020 /* beep.mp3 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,6 +287,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				SOUND001A00000001 /* SoundModule.swift in Sources */,
+				SOUND001A00000003 /* SoundModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -276,6 +318,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.rajasthanmotorssports.naviquest.app;
 				PRODUCT_NAME = NaviQuest;
+				SWIFT_OBJC_BRIDGING_HEADER = "NaviQuest/NaviQuest-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -304,6 +347,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.rajasthanmotorssports.naviquest.app;
 				PRODUCT_NAME = NaviQuest;
+				SWIFT_OBJC_BRIDGING_HEADER = "NaviQuest/NaviQuest-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
