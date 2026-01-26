@@ -8,6 +8,11 @@ PODS:
   - FBLazyVector (0.83.1)
   - fmt (11.0.2)
   - glog (0.3.5)
+  - Google-Maps-iOS-Utils (6.1.0):
+    - GoogleMaps (~> 9.0)
+  - GoogleMaps (9.4.0):
+    - GoogleMaps/Maps (= 9.4.0)
+  - GoogleMaps/Maps (9.4.0)
   - hermes-engine (0.14.0):
     - hermes-engine/Pre-built (= 0.14.0)
   - hermes-engine/Pre-built (0.14.0)
@@ -1989,6 +1994,38 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - react-native-maps/Google (1.26.20):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - Google-Maps-iOS-Utils (= 6.1.0)
+    - GoogleMaps (= 9.4.0)
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - react-native-maps/Generated
+    - react-native-maps/Maps
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - react-native-maps/Maps (1.26.20):
     - boost
     - DoubleConversion
@@ -3136,6 +3173,7 @@ DEPENDENCIES:
   - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - "react-native-keep-awake (from `../node_modules/@sayem314/react-native-keep-awake`)"
   - react-native-maps (from `../node_modules/react-native-maps`)
+  - react-native-maps/Google (from `../node_modules/react-native-maps`)
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-sqlite-2 (from `../node_modules/react-native-sqlite-2`)
@@ -3191,6 +3229,8 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - BEMCheckBox
+    - Google-Maps-iOS-Utils
+    - GoogleMaps
     - React-Codegen
     - SocketRocket
 
@@ -3402,6 +3442,8 @@ SPEC CHECKSUMS:
   FBLazyVector: 309703e71d3f2f1ed7dc7889d58309c9d77a95a4
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
+  Google-Maps-iOS-Utils: 0a484b05ed21d88c9f9ebbacb007956edd508a96
+  GoogleMaps: 0608099d4870cac8754bdba9b6953db543432438
   hermes-engine: 66ec30c02f18081eb4ab5205665e37cbc7eab85d
   RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669
   RCTDeprecation: a41bbdd9af30bf2e5715796b313e44ec43eefff1
@@ -3487,7 +3529,7 @@ SPEC CHECKSUMS:
   RNDateTimePicker: 243cc82889368422dab234d73dec63d6cdb1e70f
   RNDeviceInfo: 36d7f232bfe7c9b5c494cb7793230424ed32c388
   RNGestureHandler: cd4be101cfa17ea6bbd438710caa02e286a84381
-  RNPermissions: e5dd84f29e7a3871451f88efa83dfa6227806b51
+  RNPermissions: 0665727fc92e4a4c0ac727144748e54f59d2f25b
   RNReanimated: 292cd58688552a22b3fc1cefcfbc49b336dfed68
   RNScreens: ffbb0296608eb3560de641a711bbdb663ed1f6b4
   RNVectorIcons: 791f13226ec4a3fd13062eda9e892159f0981fae
@@ -3496,6 +3538,6 @@ SPEC CHECKSUMS:
   TextToSpeech: 89b239221ec378d213af422d14789a729705360b
   Yoga: 5456bb010373068fc92221140921b09d126b116e
 
-PODFILE CHECKSUM: 00409b38ab419cf095d960f29e7cb47507f9037a
+PODFILE CHECKSUM: 122513561e053af2b0eebac1ef5de71d051d63e2
 
 COCOAPODS: 1.16.2

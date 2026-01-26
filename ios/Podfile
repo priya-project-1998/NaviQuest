@@ -13,6 +13,23 @@ prepare_react_native_project!
 # 🔥 STATIC FRAMEWORKS (IMPORTANT)
 # use_frameworks! :linkage => :static
 
+# Setup permissions for react-native-permissions
+def node_require(script)
+  # Resolve script with node to allow for hoisting
+  require Pod::Executable.execute_command('node', ['-p',
+    "require.resolve(
+      '#{script}',
+      {paths: [process.argv[1]]},
+    )", __dir__]).strip
+end
+
+node_require('react-native-permissions/scripts/setup.rb')
+
+setup_permissions([
+  'LocationWhenInUse',
+  'LocationAlways',
+])
+
 target 'NaviQuest' do
   config = use_native_modules!
 
@@ -22,6 +39,10 @@ target 'NaviQuest' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  # ✅ Google Maps SDK for react-native-maps
+  # Use the Google subspec which includes HAVE_GOOGLE_MAPS=1 compiler flag
+  pod 'react-native-maps', :path => '../node_modules/react-native-maps', :subspecs => ['Google']
+
   post_install do |installer|
     react_native_post_install(
       installer,
@@ -29,5 +50,15 @@ target 'NaviQuest' do
       :mac_catalyst_enabled => false
       # :ccache_enabled => true
     )
+    
+    # ✅ Add HAVE_GOOGLE_MAPS preprocessor macro for react-native-maps
+    installer.pods_project.targets.each do |target|
+      if target.name == 'react-native-maps'
+        target.build_configurations.each do |config|
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'HAVE_GOOGLE_MAPS=1'
+        end
+      end
+    end
   end
 end

@@ -13,11 +13,22 @@ import {
   SafeAreaView,
   StatusBar,
   useWindowDimensions,
+  PixelRatio,
 } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import deepLinkUtils from "../utils/deepLinkUtils";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+const scale = screenWidth / 375;
+
+// Responsive size helper
+const normalize = (size) => {
+  const newSize = size * scale;
+  if (Platform.OS === 'ios') {
+    return Math.round(PixelRatio.roundToNearestPixel(newSize));
+  }
+  return Math.round(PixelRatio.roundToNearestPixel(newSize)) - 1;
+};
 
 // Determine device type
 const isSmallDevice = screenWidth < 375;
@@ -30,21 +41,7 @@ const InviteUserScreen = () => {
     return `Join us on NaviQuest! Experience amazing Motorsports events in India. \nDownload here: ${downloadLink}`;
   };
 
-  const handleShareViaWhatsApp = async () => {
-    try {
-      const appShareMessage = getAppShareMessage();
-      const url = `whatsapp://send?text=${encodeURIComponent(appShareMessage)}`;
-      const canOpen = await Linking.canOpenURL(url);
-      
-      if (canOpen) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert("Error", "WhatsApp is not installed on this device.");
-      }
-    } catch (error) {
-      Alert.alert("Error", "Unable to open WhatsApp.");
-    }
-  };
+  
 
   const handleShareApp = async () => {
     try {
@@ -78,16 +75,7 @@ const InviteUserScreen = () => {
               Share the excitement of NaviQuest with your friends! Invite them to join and experience racing events.
             </Text>
 
-            {/* WhatsApp Share Button */}
-            <TouchableOpacity
-              onPress={handleShareViaWhatsApp}
-              style={styles.buttonWrapper}
-              activeOpacity={0.7}
-            >
-              <LinearGradient colors={["#25D366", "#20BA5C"]} style={styles.shareButton}>
-                <Text style={styles.shareButtonText}>Share via WhatsApp</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+           
 
             {/* More Share Options Button */}
             <TouchableOpacity
@@ -95,9 +83,17 @@ const InviteUserScreen = () => {
               style={styles.buttonWrapper}
               activeOpacity={0.7}
             >
-              <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.shareButton}>
-                <Text style={styles.shareButtonText}>More Share Options</Text>
-              </LinearGradient>
+              <View style={styles.shareButton}>
+                <LinearGradient 
+                  colors={["#36D1DC", "#5B86E5"]} 
+                  style={styles.shareButtonGradient}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                />
+                <View style={styles.shareButtonContent}>
+                  <Text style={styles.shareButtonText}>More Share Options</Text>
+                </View>
+              </View>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -139,16 +135,13 @@ const styles = StyleSheet.create({
   },
   buttonWrapper: {
     width: "100%",
-    marginTop: isSmallDevice ? 10 : 12,
-    paddingHorizontal: 12,
+    marginTop: normalize(12),
+    paddingHorizontal: normalize(12),
   },
   shareButton: {
-    paddingVertical: isSmallDevice ? 12 : isMediumDevice ? 14 : 16,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: isSmallDevice ? 48 : 52,
+    borderRadius: normalize(10),
+    overflow: 'hidden',
+    minHeight: normalize(52),
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -161,10 +154,21 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  shareButtonGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: normalize(10),
+  },
+  shareButtonContent: {
+    paddingVertical: normalize(16),
+    paddingHorizontal: normalize(20),
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: normalize(52),
+  },
   shareButtonText: {
     color: "#fff",
-    fontWeight: "600",
-    fontSize: isSmallDevice ? 13 : isMediumDevice ? 15 : 16,
+    fontWeight: Platform.OS === 'ios' ? '600' : 'bold',
+    fontSize: normalize(16),
     textAlign: "center",
     fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
   },

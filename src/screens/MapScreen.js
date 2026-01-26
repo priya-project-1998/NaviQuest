@@ -94,6 +94,122 @@ const MapScreen = ({ route, navigation }) => {
   const syncingCheckpointsRef = useRef(new Set());
   const eventEndTimestamp = useRef(null); // ✅ Store end timestamp for timer calculation
 
+  // ✅ GPS Smoothing refs - for reducing drift and smooth movement
+  const smoothedLocationRef = useRef(null); // Stores smoothed GPS coordinates
+  const lastValidHeadingRef = useRef(0); // Stores last valid heading for rotation
+  const previousRawLocationRef = useRef(null); // ✅ Store previous raw location for heading calculation
+  const GPS_SMOOTHING_FACTOR = 0.15; // ✅ Lower = smoother (0.15 = 15% new, 85% old) - keeps car on road
+  const MIN_ACCURACY_THRESHOLD = 30; // ✅ Reduced to 30m - ignore very inaccurate readings
+  const MIN_DISTANCE_FOR_HEADING = 1; // ✅ Reduced to 1 meter - faster heading updates for turns
+
+  // ✅ Helper function to smooth GPS coordinates (low-pass filter) - keeps car on road
+  const smoothGPSCoordinates = (newLat, newLng, accuracy) => {
+    // If accuracy is too poor, don't update position at all
+    if (accuracy && accuracy > MIN_ACCURACY_THRESHOLD) {
+      console.log(`🚫 GPS accuracy too low: ${accuracy}m, ignoring update`);
+      return smoothedLocationRef.current || { latitude: newLat, longitude: newLng };
+    }
+
+    // ✅ Store raw location for heading calculation
+    const previousRaw = previousRawLocationRef.current;
+    previousRawLocationRef.current = { latitude: newLat, longitude: newLng };
+
+    if (!smoothedLocationRef.current) {
+      // First reading - use as-is
+      smoothedLocationRef.current = { latitude: newLat, longitude: newLng };
+      return smoothedLocationRef.current;
+    }
+
+    // ✅ Calculate distance from smoothed position to new position
+    const R = 6371000;
+    const dLat = (newLat - smoothedLocationRef.current.latitude) * Math.PI / 180;
+    const dLon = (newLng - smoothedLocationRef.current.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(smoothedLocationRef.current.latitude * Math.PI / 180) * 
+              Math.cos(newLat * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const distanceFromSmoothed = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    // ✅ Dynamic smoothing based on accuracy AND distance
+    // If GPS jumped too far (>50m), it's likely noise - use very low factor
+    // If small movement with good accuracy, trust new value more
+    let dynamicFactor = GPS_SMOOTHING_FACTOR;
+    
+    if (distanceFromSmoothed > 50) {
+      // Large jump - likely GPS noise, use very low factor
+      dynamicFactor = 0.05;
+    } else if (accuracy && accuracy < 10) {
+      // Very good accuracy - trust new value more
+      dynamicFactor = 0.4;
+    } else if (accuracy && accuracy < 20) {
+      // Good accuracy
+      dynamicFactor = 0.25;
+    }
+    
+    const smoothedLat = smoothedLocationRef.current.latitude + 
+      dynamicFactor * (newLat - smoothedLocationRef.current.latitude);
+    const smoothedLng = smoothedLocationRef.current.longitude + 
+      dynamicFactor * (newLng - smoothedLocationRef.current.longitude);
+
+    smoothedLocationRef.current = { latitude: smoothedLat, longitude: smoothedLng };
+    return smoothedLocationRef.current;
+  };
+
+  // ✅ Helper function to smooth heading (prevents jerky rotation but responds to turns)
+  const smoothHeading = (newHeading, previousLat, previousLng, currentLat, currentLng) => {
+    // ✅ Helper function for distance calculation (inline to avoid dependency issues)
+    const calcDistance = (lat1, lon1, lat2, lon2) => {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    };
+
+    // ✅ Helper function for bearing calculation (inline)
+    const calcBearing = (lat1, lon1, lat2, lon2) => {
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const lat1Rad = lat1 * Math.PI / 180;
+      const lat2Rad = lat2 * Math.PI / 180;
+      const y = Math.sin(dLon) * Math.cos(lat2Rad);
+      const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+      let bearing = Math.atan2(y, x) * 180 / Math.PI;
+      return ((bearing % 360) + 360) % 360;
+    };
+
+    // Only update heading if user has moved enough distance
+    const distanceMoved = calcDistance(previousLat, previousLng, currentLat, currentLng);
+    
+    if (distanceMoved < MIN_DISTANCE_FOR_HEADING) {
+      // User hasn't moved enough - keep last valid heading
+      return lastValidHeadingRef.current;
+    }
+
+    // ✅ Calculate heading from actual movement direction
+    const calculatedHeading = calcBearing(previousLat, previousLng, currentLat, currentLng);
+    
+    // ✅ If this is first heading or very different, use new heading directly
+    if (lastValidHeadingRef.current === 0) {
+      lastValidHeadingRef.current = calculatedHeading;
+      return calculatedHeading;
+    }
+
+    // Smooth heading transition (prevent sudden jumps)
+    let headingDiff = calculatedHeading - lastValidHeadingRef.current;
+    
+    // Handle 360/0 degree wraparound
+    if (headingDiff > 180) headingDiff -= 360;
+    if (headingDiff < -180) headingDiff += 360;
+    
+    // ✅ Apply faster smoothing for turns - 70% of the difference (was 40%)
+    const smoothedHeading = lastValidHeadingRef.current + headingDiff * 0.7;
+    lastValidHeadingRef.current = ((smoothedHeading % 360) + 360) % 360; // Normalize to 0-360
+    
+    return lastValidHeadingRef.current;
+  };
+
   // ✅ Helper function to get the appropriate voice alert utility
   const getVoiceAlertUtils = () => {
     return EnhancedVoiceAlertUtils; // Use enhanced TTS voice alerts
@@ -949,31 +1065,54 @@ const syncPendingCheckpoints = async () => {
   // Update speed and route on user location change
   const handleUserLocationChange = (e) => {
     try {
-      const { latitude, longitude, speed, heading } = e.nativeEvent.coordinate;
+      const { latitude, longitude, speed, heading, accuracy } = e.nativeEvent.coordinate;
       
-      // ✅ Always add to route - instant tracking (no 5m filter)
-      setUserRoute((prev) => [...prev, { latitude, longitude }]);
+      // ✅ Store previous raw location BEFORE smoothing for accurate heading
+      const previousRaw = previousRawLocationRef.current || { latitude, longitude };
       
-      setLastUserLocation({ latitude, longitude });
+      // ✅ Apply GPS smoothing to reduce drift (car stays on road)
+      const smoothedLocation = smoothGPSCoordinates(latitude, longitude, accuracy);
       
-      // Update heading/direction for car icon rotation
-      if (typeof heading === 'number' && !isNaN(heading)) {
-        setUserHeading(heading);
+      // ✅ Use smoothed coordinates for display
+      setUserRoute((prev) => [...prev, smoothedLocation]);
+      setLastUserLocation(smoothedLocation);
+      
+      // ✅ Calculate heading using calculateBearing (same as simulation) for instant rotation
+      let newHeading = userHeading;
+      
+      // Check if user has moved enough distance to calculate heading
+      const distanceMoved = getDistanceFromLatLonInMeters(
+        previousRaw.latitude, 
+        previousRaw.longitude, 
+        latitude, 
+        longitude
+      );
+      
+      if (typeof heading === 'number' && !isNaN(heading) && heading > 0) {
+        // ✅ GPS provides heading - use it directly (like simulation)
+        newHeading = heading;
+        lastValidHeadingRef.current = heading;
+      } else if (distanceMoved >= MIN_DISTANCE_FOR_HEADING) {
+        // ✅ Calculate heading from RAW movement direction using calculateBearing (same as simulation)
+        newHeading = calculateBearing(
+          previousRaw.latitude, 
+          previousRaw.longitude, 
+          latitude, // ✅ Use RAW coordinates for heading
+          longitude
+        );
+        lastValidHeadingRef.current = newHeading;
       } else {
-        // Calculate heading from previous position if GPS heading not available
-        const lastLocation = userRoute[userRoute.length - 1];
-        if (lastLocation) {
-          const calculatedHeading = calculateBearing(
-            lastLocation.latitude,
-            lastLocation.longitude,
-            latitude,
-            longitude
-          );
-          setUserHeading(calculatedHeading);
-        }
+        // ✅ User hasn't moved enough - keep last valid heading
+        newHeading = lastValidHeadingRef.current;
       }
+      setUserHeading(newHeading);
       
-      checkProximityToCheckpoints(latitude, longitude);
+      // ✅ Update previous raw location AFTER heading calculation
+      previousRawLocationRef.current = { latitude, longitude };
+      
+      // ✅ Check proximity using smoothed coordinates
+      checkProximityToCheckpoints(smoothedLocation.latitude, smoothedLocation.longitude);
+      
       if (typeof speed === 'number' && !isNaN(speed)) {
         // speed in m/s, convert to km/h
         const speedKmh = Math.round(speed * 3.6);
@@ -983,14 +1122,14 @@ const syncPendingCheckpoints = async () => {
         checkSpeedLimit(speedKmh);
       }
       
-      // ✅ GOOGLE MAPS BEHAVIOR: Continuously center map when following
+      // ✅ GOOGLE MAPS BEHAVIOR: Continuously center map when following (use smoothed location)
       if (isFollowingUserRef.current && mapRef.current) {
         try {
           isProgrammaticMove.current = true; // ✅ Mark as programmatic before animation
           const currentZoom = userCurrentRegion || { latitudeDelta: 0.01, longitudeDelta: 0.01 };
           mapRef.current.animateToRegion({
-            latitude,
-            longitude,
+            latitude: smoothedLocation.latitude,
+            longitude: smoothedLocation.longitude,
             latitudeDelta: currentZoom.latitudeDelta,
             longitudeDelta: currentZoom.longitudeDelta,
           }, 300); // Fast, smooth centering (reduced from 500ms)
@@ -1175,32 +1314,54 @@ const syncPendingCheckpoints = async () => {
       // Start watching user location
       const id = Geolocation.watchPosition(
         (position) => {
-          const { latitude, longitude, heading } = position.coords;
+          const { latitude, longitude, heading, accuracy } = position.coords;
           
-          // Update user coordinates
-          setUserCoords({ latitude, longitude });
+          // ✅ Store previous raw location BEFORE smoothing for accurate heading
+          const previousRaw = previousRawLocationRef.current || { latitude, longitude };
           
-          // ✅ Always add to route - instant tracking (no 5m filter)
-          setUserRoute((prev) => [...prev, { latitude, longitude }]);
+          // ✅ Apply GPS smoothing to reduce drift
+          const smoothedLocation = smoothGPSCoordinates(latitude, longitude, accuracy);
           
-          setLastUserLocation({ latitude, longitude });
+          // Update user coordinates with smoothed values
+          setUserCoords(smoothedLocation);
           
-          // Update heading/direction for car icon rotation
-          if (typeof heading === 'number' && !isNaN(heading)) {
-            setUserHeading(heading);
+          // ✅ Use smoothed coordinates for route
+          setUserRoute((prev) => [...prev, smoothedLocation]);
+          
+          setLastUserLocation(smoothedLocation);
+          
+          // ✅ Calculate heading using calculateBearing (same as simulation) for instant rotation
+          let newHeading = userHeading;
+          
+          // Check if user has moved enough distance to calculate heading
+          const distanceMoved = getDistanceFromLatLonInMeters(
+            previousRaw.latitude, 
+            previousRaw.longitude, 
+            latitude, 
+            longitude
+          );
+          
+          if (typeof heading === 'number' && !isNaN(heading) && heading > 0) {
+            // ✅ GPS provides heading - use it directly (like simulation)
+            newHeading = heading;
+            lastValidHeadingRef.current = heading;
+          } else if (distanceMoved >= MIN_DISTANCE_FOR_HEADING) {
+            // ✅ Calculate heading from RAW movement direction using calculateBearing (same as simulation)
+            newHeading = calculateBearing(
+              previousRaw.latitude, 
+              previousRaw.longitude, 
+              latitude, // ✅ Use RAW coordinates
+              longitude
+            );
+            lastValidHeadingRef.current = newHeading;
           } else {
-            // Calculate heading from previous position if GPS heading not available
-            const lastLocation = userRoute[userRoute.length - 1];
-            if (lastLocation) {
-              const calculatedHeading = calculateBearing(
-                lastLocation.latitude,
-                lastLocation.longitude,
-                latitude,
-                longitude
-              );
-              setUserHeading(calculatedHeading);
-            }
+            // ✅ User hasn't moved enough - keep last valid heading
+            newHeading = lastValidHeadingRef.current;
           }
+          setUserHeading(newHeading);
+          
+          // ✅ Update previous raw location AFTER heading calculation
+          previousRawLocationRef.current = { latitude, longitude };
           
           // ✅ Check speed and speed limit
           if (typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)) {
@@ -1209,14 +1370,14 @@ const syncPendingCheckpoints = async () => {
             checkSpeedLimit(speedKmh);
           }
           
-          // ✅ GOOGLE MAPS BEHAVIOR: Continuously center on user location when following
+          // ✅ GOOGLE MAPS BEHAVIOR: Continuously center on user location when following (use smoothed location)
           if (isFollowingUserRef.current && mapRef.current) {
             try {
               isProgrammaticMove.current = true; // ✅ Mark as programmatic before animation
               const currentZoom = userCurrentRegion || { latitudeDelta: 0.01, longitudeDelta: 0.01 };
               mapRef.current.animateToRegion({
-                latitude,
-                longitude,
+                latitude: smoothedLocation.latitude,
+                longitude: smoothedLocation.longitude,
                 latitudeDelta: currentZoom.latitudeDelta,
                 longitudeDelta: currentZoom.longitudeDelta,
               }, 300); // Fast, smooth centering for real-time tracking
@@ -1226,11 +1387,12 @@ const syncPendingCheckpoints = async () => {
             }
           }
           
-          // Check proximity to checkpoints
-          checkProximityToCheckpoints(latitude, longitude);
+          // Check proximity to checkpoints (use smoothed location)
+          checkProximityToCheckpoints(smoothedLocation.latitude, smoothedLocation.longitude);
           
           // Set following status
           if (!isFollowingUser) {
+            isFollowingUserRef.current = true;
             setIsFollowingUser(true);
           }
         },
@@ -1741,7 +1903,8 @@ const syncPendingCheckpoints = async () => {
       )}
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+        provider={PROVIDER_GOOGLE}  // Now uses Google Maps on both platforms
+       // provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         style={styles.map}
         initialRegion={getBoundingRegion(checkpoints)}
         mapType={mapType}
@@ -1796,7 +1959,8 @@ const syncPendingCheckpoints = async () => {
             title="🚗 Sim User" 
             description="Test simulation"
             anchor={{ x: 0.5, y: 0.5 }}
-            flat={false}
+            flat={true}
+            rotation={userHeading}
           >
             {/* Perfect Google Maps Style Car Icon */}
             <View style={{
@@ -1804,7 +1968,6 @@ const syncPendingCheckpoints = async () => {
               height: 36,
               justifyContent: 'center',
               alignItems: 'center',
-              transform: [{ rotate: `${userHeading}deg` }] // Direct rotation like Google Maps
             }}>
               {/* Car Icon with SVG-like design */}
               <View style={{
@@ -1907,7 +2070,8 @@ const syncPendingCheckpoints = async () => {
             title="📍 My Live Location"
             description="Real-time tracking active"
             anchor={{ x: 0.5, y: 0.5 }}
-            flat={false}
+            flat={true}
+            rotation={userHeading}
           >
            {/* Perfect Google Maps Style Car Icon - 50% Bigger & Red */}
               <View style={{
@@ -1915,7 +2079,6 @@ const syncPendingCheckpoints = async () => {
                 height: 63,
                 justifyContent: 'center',
                 alignItems: 'center',
-                transform: [{ rotate: `${userHeading}deg` }]
               }}>
                 <View style={{
                   width: 27,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, SafeAreaView, StatusBar } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NotificationBell from '../components/NotificationBell';
@@ -198,22 +198,24 @@ export default function EventStartScreen({ navigation, route }) {
 
   return (
     <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradientBg}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" backgroundColor="#0f2027" />
+        
+        {/* Header - Outside ScrollView */}
+        <View style={styles.headerBar}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
+            <Text style={styles.headerBackIcon}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Event Start</Text>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Decorative Circles */}
         <View style={styles.bgCircle1} />
         <View style={styles.bgCircle2} />
 
         {/* Gradient Top Bar */}
         <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradientBar} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
-
-        {/* Header */}
-        <View style={styles.headerBar}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-            <Text style={styles.headerBackIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Event Start</Text>
-          {/* <NotificationBell style={{ marginLeft: 'auto' }} /> */}
-        </View>
 
         {/* Banner/Icon */}
         <View style={styles.bannerContainer}>
@@ -242,7 +244,10 @@ export default function EventStartScreen({ navigation, route }) {
           <View style={styles.infoRow}><Text style={styles.detailIcon}>📍</Text><Text style={styles.label}>GPS Accuracy</Text><Text style={[styles.value, styles.success]}>{gpsAccuracyDisplay}</Text></View>
           {/* Buttons */}
           <View style={styles.featureBtnRow}>
-            <TouchableOpacity style={styles.featureBtn} onPress={async () => {
+            <TouchableOpacity 
+              style={styles.featureBtn} 
+              activeOpacity={0.8}
+              onPress={async () => {
               try {
                 const shareData = generateShareMessage({
                   event_id: eventId,
@@ -276,14 +281,13 @@ export default function EventStartScreen({ navigation, route }) {
                 Alert.alert('Share Error', 'Failed to share event');
               }
             }}>
-              <LinearGradient colors={["#43cea2", "#185a9d"]} style={styles.featureBtnGradient}>
-                <Text style={styles.featureBtnText}>Share Event</Text>
-              </LinearGradient>
+              <Text style={styles.featureBtnText}>Share Event</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.featureBtn} onPress={() => navigation.navigate("EventDetails", { event })}>
-              <LinearGradient colors={["#43cea2", "#185a9d"]} style={styles.featureBtnGradient}>
-                <Text style={styles.featureBtnText}>View Details</Text>
-              </LinearGradient>
+            <TouchableOpacity 
+              style={styles.featureBtn} 
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate("EventDetails", { event })}>
+              <Text style={styles.featureBtnText}>View Details</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -330,20 +334,21 @@ export default function EventStartScreen({ navigation, route }) {
           {/* Start Button - Only show if event is not completed */}
           {!isEventCompleted && (
             <TouchableOpacity
-              style={[styles.startBtnIntegrated, (!canStartEvent || isEventAborted) && styles.startBtnDisabled]}
+              style={[
+                styles.startBtnIntegrated, 
+                (!canStartEvent || isEventAborted) && styles.startBtnDisabled
+              ]}
               disabled={!canStartEvent || isEventAborted}
+              activeOpacity={0.8}
               onPress={() => {
                 if (canStartEvent && !isEventAborted) {
                   handleStartEvent();
                 }
               }}
             >
-              <LinearGradient colors={(!canStartEvent || isEventAborted) ? ["#666", "#888"] : ["#43cea2", "#185a9d"]} style={styles.startBtnGradientIntegrated}>
-                <Text style={styles.startBtnTextIntegrated}>START</Text>
-              </LinearGradient>
+              <Text style={styles.startBtnTextIntegrated}>START</Text>
             </TouchableOpacity>
           )}
-          
           {/* Event Completed Message */}
           {isEventCompleted && (
             <View style={styles.completedContainer}>
@@ -393,7 +398,7 @@ export default function EventStartScreen({ navigation, route }) {
         </View>
 
         {/* Testing Button - For Development Only */}
-        {/* <TouchableOpacity
+         <TouchableOpacity
           style={styles.testingBtn}
           onPress={() => {
             handleStartEvent();
@@ -402,7 +407,7 @@ export default function EventStartScreen({ navigation, route }) {
           <LinearGradient colors={["#FF6B6B", "#EE5A6F"]} style={styles.testingBtnGradient}>
             <Text style={styles.testingBtnText}>🧪 TEST START (Dev Only)</Text>
           </LinearGradient>
-        </TouchableOpacity>   */}
+        </TouchableOpacity>   
 
         {/* Location Info */}
         <View style={styles.locationInfoRow}>
@@ -414,6 +419,7 @@ export default function EventStartScreen({ navigation, route }) {
         {/* Motivation */}
         <Text style={styles.startInfo}>Click Only When Asked To Take Start</Text>
       </ScrollView>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
@@ -422,6 +428,9 @@ const styles = StyleSheet.create({
   gradientBg: {
     flex: 1,
     minHeight: '100%',
+  },
+  safeArea: {
+    flex: 1,
   },
   container: {
     flex: 1,
@@ -514,10 +523,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   glassCard: {
-    width: width * 0.92,
+    width: '100%',
     backgroundColor: 'rgba(15,15,20,0.95)',
     borderRadius: 24,
     padding: 20,
+    paddingBottom: 24,
     marginTop: 30,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -591,7 +601,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   glassStatusCard: {
-    width: width * 0.92,
+    width: '100%',
     backgroundColor: 'rgba(15,15,20,0.95)',
     borderRadius: 24,
     padding: 20,
@@ -677,7 +687,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginTop: 22,
-    width: width * 0.92,
+    width: '100%',
   },
   locationInfoText: {
     fontSize: 14,
@@ -705,9 +715,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 60,
+    paddingTop: Platform.OS === 'ios' ? 0 : 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'flex-start',
+    width: '100%',
   },
   startBtnIntegrated: {
     marginTop: 14,
@@ -715,24 +728,19 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     alignSelf: 'center',
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 4,
-    elevation: 2,
-    overflow: 'hidden',
+    backgroundColor: '#43cea2',
+    paddingVertical: 14,
   },
-  startBtnGradientIntegrated: {
-    borderRadius: 14,
-    width: '100%',
-    paddingVertical: 13,
-    alignItems: 'center',
+  startBtnDisabled: {
+    backgroundColor: '#888',
+    opacity: 0.6,
   },
   startBtnTextIntegrated: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 18,
     letterSpacing: 1,
+    textAlign: 'center',
   },
   startHint: {
     marginTop: 8,
@@ -798,36 +806,30 @@ const styles = StyleSheet.create({
   },
   featureBtnRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     marginTop: 16,
-    marginBottom: 4,
+    marginBottom: 10,
+    width: '100%',
   },
   featureBtn: {
     flex: 1,
-    marginHorizontal: 6,
+    marginHorizontal: 5,
+    backgroundColor: '#43cea2',
     borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  featureBtnGradient: {
-    borderRadius: 12,
-    paddingVertical: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     alignItems: 'center',
-    width: '100%',
+    justifyContent: 'center',
   },
   featureBtnText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 15,
-    letterSpacing: 0.5,
+    fontSize: 14,
+    textAlign: 'center',
   },
   testingBtn: {
     marginTop: 18,
-    width: width * 0.92,
+    width: '100%',
     borderRadius: 14,
     alignItems: 'center',
     alignSelf: 'center',
