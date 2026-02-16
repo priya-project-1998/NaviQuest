@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -8,17 +8,15 @@ import {
   ScrollView,
   Share,
   Platform,
-  Linking,
   Dimensions,
   SafeAreaView,
   StatusBar,
-  useWindowDimensions,
   PixelRatio,
 } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import deepLinkUtils from "../utils/deepLinkUtils";
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+const { width: screenWidth } = Dimensions.get("window");
 const scale = screenWidth / 375;
 
 // Responsive size helper
@@ -30,7 +28,7 @@ const normalize = (size) => {
   return Math.round(PixelRatio.roundToNearestPixel(newSize)) - 1;
 };
 
-// Determine device type
+// Device types for responsiveness
 const isSmallDevice = screenWidth < 375;
 const isMediumDevice = screenWidth >= 375 && screenWidth < 415;
 const isLargeDevice = screenWidth >= 415;
@@ -40,8 +38,6 @@ const InviteUserScreen = () => {
     const downloadLink = Platform.OS === "ios" ? deepLinkUtils.APP_STORE_URL : deepLinkUtils.PLAY_STORE_URL;
     return `Join us on NaviQuest! Experience amazing Motorsports events in India. \nDownload here: ${downloadLink}`;
   };
-
-  
 
   const handleShareApp = async () => {
     try {
@@ -56,18 +52,23 @@ const InviteUserScreen = () => {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    // ✅ FIX 1: LinearGradient ko sabse bahar rakha hai taaki poori screen cover ho (niche ka white gap khatam)
+    <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={{ flex: 1 }}>
+      
+      {/* ✅ FIX 2: StatusBar ko transparent kiya hai taaki gradient upar tak jaye */}
       <StatusBar
-        barStyle={Platform.OS === "ios" ? "light-content" : "light-content"}
+        barStyle="light-content"
         backgroundColor="transparent"
-        translucent={Platform.OS === "android"}
+        translucent={true}
       />
-      <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={{ flex: 1 }}>
+
+      {/* ✅ FIX 3: SafeAreaView ab gradient ke andar hai */}
+      <SafeAreaView style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={styles.scrollContainer}
           keyboardShouldPersistTaps="handled"
-          scrollEnabled={true}
           showsVerticalScrollIndicator={false}
+          bounces={false} // iOS specific: unnecessary bounce hatane ke liye
         >
           <View style={styles.container}>
             <Text style={styles.heading}>Share NaviQuest</Text>
@@ -75,13 +76,11 @@ const InviteUserScreen = () => {
               Share the excitement of NaviQuest with your friends! Invite them to join and experience racing events.
             </Text>
 
-           
-
             {/* More Share Options Button */}
             <TouchableOpacity
               onPress={handleShareApp}
               style={styles.buttonWrapper}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
               <View style={styles.shareButton}>
                 <LinearGradient 
@@ -97,18 +96,18 @@ const InviteUserScreen = () => {
             </TouchableOpacity>
           </View>
         </ScrollView>
-      </LinearGradient>
-    </SafeAreaView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
   scrollContainer: {
-    flexGrow: 1,
+    flexGrow: 1, // Content ko vertical center karne ke liye zaroori hai
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: isSmallDevice ? 12 : 16,
-    paddingVertical: isSmallDevice ? 12 : isLargeDevice ? 20 : 16,
+    paddingHorizontal: isSmallDevice ? 20 : 30,
+    paddingVertical: 20,
   },
   container: {
     width: "100%",
@@ -117,60 +116,53 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   heading: {
-    fontSize: isSmallDevice ? 24 : isMediumDevice ? 28 : 32,
-    fontWeight: "700",
-    color: "#ff7e5f",
-    marginBottom: isSmallDevice ? 8 : 12,
+    fontSize: isSmallDevice ? 26 : isMediumDevice ? 30 : 34,
+    fontWeight: "800",
+    color: "#ff7e5f", // Orange/Coral shade as per your image
+    marginBottom: 15,
     textAlign: "center",
-    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
   },
   subHeading: {
-    fontSize: isSmallDevice ? 13 : isMediumDevice ? 15 : 16,
-    color: "#fff",
-    marginBottom: isSmallDevice ? 20 : isMediumDevice ? 24 : 28,
+    fontSize: isSmallDevice ? 14 : 16,
+    color: "#ffffff",
+    opacity: 0.9,
+    marginBottom: 40,
     textAlign: "center",
-    lineHeight: isSmallDevice ? 20 : 24,
-    paddingHorizontal: 8,
-    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
+    lineHeight: 24,
+    paddingHorizontal: 10,
   },
   buttonWrapper: {
-    width: "100%",
-    marginTop: normalize(12),
-    paddingHorizontal: normalize(12),
+    width: "90%",
+    maxWidth: 320,
   },
   shareButton: {
-    borderRadius: normalize(10),
+    borderRadius: 15,
     overflow: 'hidden',
-    minHeight: normalize(52),
     ...Platform.select({
       ios: {
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5,
       },
       android: {
-        elevation: 4,
+        elevation: 8,
       },
     }),
   },
   shareButtonGradient: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: normalize(10),
   },
   shareButtonContent: {
-    paddingVertical: normalize(16),
-    paddingHorizontal: normalize(20),
+    paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: normalize(52),
   },
   shareButtonText: {
     color: "#fff",
-    fontWeight: Platform.OS === 'ios' ? '600' : 'bold',
-    fontSize: normalize(16),
-    textAlign: "center",
-    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
+    fontWeight: "bold",
+    fontSize: 18,
+    letterSpacing: 0.5,
   },
 });
 

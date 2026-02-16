@@ -2,7 +2,7 @@ import React, { forwardRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 
 import HomeScreen from '../screens/HomeScreen';
@@ -60,7 +60,8 @@ function DrawerNavigator() {
       screenOptions={{
         ...defaultScreenOptions,
         headerStyle: {
-          height: 65,
+          // Don't set fixed height on iOS - let it automatically handle safe area
+          ...(Platform.OS === 'android' ? { height: 65 } : {}),
           backgroundColor: 'transparent',
           elevation: 0,
           shadowOpacity: 0,
