@@ -2393,6 +2393,7 @@ const syncPendingCheckpoints = async () => {
               );
             }
           }}
+          disabled={true}
         >
           <View style={[
             styles.tabIconContainer,
@@ -2401,7 +2402,7 @@ const syncPendingCheckpoints = async () => {
             <Text style={styles.tabIcon}>📍</Text>
           </View>
           <Text style={styles.tabLabel}>
-            {isFollowingUser ? 'Following' : 'Location'}
+            {isFollowingUser ? 'Auto Following' : 'Auto-follow OFF'}
           </Text>
         </TouchableOpacity>
         
