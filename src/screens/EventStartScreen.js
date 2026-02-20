@@ -349,6 +349,16 @@ export default function EventStartScreen({ navigation, route }) {
               <Text style={styles.startBtnTextIntegrated}>START</Text>
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                  handleStartEvent();
+                
+              }}
+            >
+              <Text style={styles.startBtnTextIntegrated}>START</Text>
+            </TouchableOpacity>
+
           {/* Event Completed Message */}
           {isEventCompleted && (
             <View style={styles.completedContainer}>

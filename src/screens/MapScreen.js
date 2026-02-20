@@ -1,22 +1,5 @@
-import React, { useRef, useState, useEffect,useCallback } from "react";
-import {
-  View,
-  StyleSheet,
-  Dimensions,
-  TouchableOpacity,
-  Text,
-  PermissionsAndroid,
-  Platform,
-  Alert,
-  Modal,
-  ScrollView,
-  BackHandler,
-  ActivityIndicator,
-  ToastAndroid,
-  TextInput,
-  Linking,
-  Vibration,
-} from "react-native";
+import React, { useRef, useState, useEffect, useCallback } from "react";
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, PermissionsAndroid, Platform, Alert, Modal, ScrollView, BackHandler, ActivityIndicator, ToastAndroid, TextInput, Linking, Vibration, Animated } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from "react-native-maps";
 import Geolocation from "@react-native-community/geolocation";
@@ -24,14 +7,7 @@ import NetInfo from "@react-native-community/netinfo";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DeviceInfo from 'react-native-device-info';
 import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
-import {
-  createTables,
-  saveCheckpoint,
-  getPendingCheckpoints,
-  markSynced,
-  getCheckpointById,
-  getCompletedCheckpointsForEvent, // <-- import the new function
-} from "../services/dbService";
+import { createTables, saveCheckpoint, getPendingCheckpoints, markSynced, getCheckpointById, getCompletedCheckpointsForEvent } from "../services/dbService";
 import SoundUtils from '../utils/SoundUtils';
 import VibrationSoundUtils from '../utils/VibrationSoundUtils';
 import SystemSoundUtils from '../utils/SystemSoundUtils';
@@ -51,6 +27,7 @@ const MapScreen = ({ route, navigation }) => {
   const [remainingSeconds, setRemainingSeconds] = useState(0); // Countdown timer for event duration
   const [fifteenMinuteWarningGiven, setFifteenMinuteWarningGiven] = useState(false); // Track 15-min warning
   const [currentSpeed, setCurrentSpeed] = useState(0);
+  const currentSpeedRef = useRef(0); // ✅ Ref for instant access to latest speed
   const [modalVisible, setModalVisible] = useState(false);
   const [userRoute, setUserRoute] = useState([]); // Track user route - real user movement path
   const [checkpointStatus, setCheckpointStatus] = useState({}); // { checkpoint_id: { time, completed } }
@@ -72,156 +49,90 @@ const MapScreen = ({ route, navigation }) => {
   const [userCurrentRegion, setUserCurrentRegion] = useState(null); // Track current map region
   const [hasInitialZoom, setHasInitialZoom] = useState(false); // Track if initial zoom done
   const isProgrammaticMove = useRef(false); // ✅ Flag to distinguish app animations from user gestures
+  const userManualZoomRef = useRef({ latitudeDelta: 0.005, longitudeDelta: 0.005 }); // ✅ Store user's manual zoom level - preserved during auto-follow (Google Maps nav default)
+  const currentZoomLevelRef = useRef(17); // ✅ Track current zoom level (17 = street level like Google Maps nav)
+  const isUserTouchingMap = useRef(false); // ✅ Track if user is actively touching/gesturing on map (pinch/pan)
+  const isPanGestureRef = useRef(false); // ✅ Track specifically if user is panning (not zooming)
   const [speedLimit, setSpeedLimit] = useState(60); // Default speed limit
   const [isOverspeedAlertShown, setIsOverspeedAlertShown] = useState(false);
+  const isOverspeedAlertShownRef = useRef(false); // ✅ Ref to avoid stale closure in checkSpeedLimit
   const [overspeedCount, setOverspeedCount] = useState(0);
   const overspeedCountRef = useRef(0); // ✅ Ref to track latest overspeedCount value
+  const lastOverspeedCounterTimestampRef = useRef(0); // ✅ Track last time overspeed counter was incremented (for 5s interval)
+  const flashAnim = useRef(new Animated.Value(1)).current; // ✅ For flashing REDUCE SPEED banner
+  const flashAnimationRef = useRef(null); // ✅ Ref to control flash animation loop
   const [lastOverspeedAlert, setLastOverspeedAlert] = useState(0);
+  const lastOverspeedAlertRef = useRef(0); // ✅ Ref to avoid stale closure
   const [abortLoading, setAbortLoading] = useState(false);
   const [randomAbortCode, setRandomAbortCode] = useState("");
   const [enteredAbortCode, setEnteredAbortCode] = useState("");
   const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(true);
   const [eventStartAnnounced, setEventStartAnnounced] = useState(false);
   const [lastOverspeedVoiceAlert, setLastOverspeedVoiceAlert] = useState(0);
+  const lastOverspeedVoiceAlertRef = useRef(0); // ✅ Ref to avoid stale closure
   const [timeWarningGiven, setTimeWarningGiven] = useState(false);
   const [eventEndTime, setEventEndTime] = useState(null);
   const [useSimpleVoiceAlerts, setUseSimpleVoiceAlerts] = useState(true); // Default to simple alerts
   const [okayTimeout, setOkayTimeout] = useState(30); // 30 second countdown for "Okay" button
   const [startTimeAdded, setStartTimeAdded] = useState(false); // ✅ new state
-
   const { checkpoints: paramCheckpoints, category_id, event_id, kml_path, color, event_organizer_no, speed_limit, event_start_date, event_end_date,duration } = route.params || {};
   const checkpoints = Array.isArray(paramCheckpoints) ? paramCheckpoints : [];
-  
   const eventStartTimeRef = useRef(null);
   const syncingCheckpointsRef = useRef(new Set());
   const eventEndTimestamp = useRef(null); // ✅ Store end timestamp for timer calculation
-
-  // ✅ GPS Smoothing refs - for reducing drift and smooth movement
   const smoothedLocationRef = useRef(null); // Stores smoothed GPS coordinates
   const lastValidHeadingRef = useRef(0); // Stores last valid heading for rotation
   const previousRawLocationRef = useRef(null); // ✅ Store previous raw location for heading calculation
   const GPS_SMOOTHING_FACTOR = 0.15; // ✅ Lower = smoother (0.15 = 15% new, 85% old) - keeps car on road
   const MIN_ACCURACY_THRESHOLD = 30; // ✅ Reduced to 30m - ignore very inaccurate readings
   const MIN_DISTANCE_FOR_HEADING = 1; // ✅ Reduced to 1 meter - faster heading updates for turns
+  const isCurrentlyOverspeedRef = useRef(false); // Whether currently in overspeed state (for edge detection)
+  const speedHistoryRef = useRef([]); // Rolling window of recent speed readings
+  const SPEED_HISTORY_SIZE = 3; // Number of readings to average (smooths out spikes)
+  const lastSpeedProcessedTimestampRef = useRef(0);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState("success"); // success, error, info, warning
+  const [markerPosition, setMarkerPosition] = useState(null); // Simulation marker
+  const [isSimulating, setIsSimulating] = useState(false);
+  const simulationIntervalRef = useRef(null);
+  const [simulatedSpeed, setSimulatedSpeed] = useState(0); // <-- add this line
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [isTestModeChecked, setIsTestModeChecked] = useState(false);
 
-  // ✅ Helper function to smooth GPS coordinates (low-pass filter) - keeps car on road
   const smoothGPSCoordinates = (newLat, newLng, accuracy) => {
-    // If accuracy is too poor, don't update position at all
     if (accuracy && accuracy > MIN_ACCURACY_THRESHOLD) {
       console.log(`🚫 GPS accuracy too low: ${accuracy}m, ignoring update`);
       return smoothedLocationRef.current || { latitude: newLat, longitude: newLng };
     }
-
-    // ✅ Store raw location for heading calculation
     const previousRaw = previousRawLocationRef.current;
     previousRawLocationRef.current = { latitude: newLat, longitude: newLng };
-
     if (!smoothedLocationRef.current) {
-      // First reading - use as-is
       smoothedLocationRef.current = { latitude: newLat, longitude: newLng };
       return smoothedLocationRef.current;
     }
 
-    // ✅ Calculate distance from smoothed position to new position
     const R = 6371000;
     const dLat = (newLat - smoothedLocationRef.current.latitude) * Math.PI / 180;
     const dLon = (newLng - smoothedLocationRef.current.longitude) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(smoothedLocationRef.current.latitude * Math.PI / 180) * 
-              Math.cos(newLat * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(smoothedLocationRef.current.latitude * Math.PI / 180) * Math.cos(newLat * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
     const distanceFromSmoothed = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    // ✅ Dynamic smoothing based on accuracy AND distance
-    // If GPS jumped too far (>50m), it's likely noise - use very low factor
-    // If small movement with good accuracy, trust new value more
     let dynamicFactor = GPS_SMOOTHING_FACTOR;
-    
     if (distanceFromSmoothed > 50) {
-      // Large jump - likely GPS noise, use very low factor
       dynamicFactor = 0.05;
     } else if (accuracy && accuracy < 10) {
-      // Very good accuracy - trust new value more
       dynamicFactor = 0.4;
     } else if (accuracy && accuracy < 20) {
-      // Good accuracy
       dynamicFactor = 0.25;
     }
-    
-    const smoothedLat = smoothedLocationRef.current.latitude + 
-      dynamicFactor * (newLat - smoothedLocationRef.current.latitude);
-    const smoothedLng = smoothedLocationRef.current.longitude + 
-      dynamicFactor * (newLng - smoothedLocationRef.current.longitude);
-
+    const smoothedLat = smoothedLocationRef.current.latitude + dynamicFactor * (newLat - smoothedLocationRef.current.latitude);
+    const smoothedLng = smoothedLocationRef.current.longitude + dynamicFactor * (newLng - smoothedLocationRef.current.longitude);
     smoothedLocationRef.current = { latitude: smoothedLat, longitude: smoothedLng };
     return smoothedLocationRef.current;
   };
 
-  // ✅ Helper function to smooth heading (prevents jerky rotation but responds to turns)
-  const smoothHeading = (newHeading, previousLat, previousLng, currentLat, currentLng) => {
-    // ✅ Helper function for distance calculation (inline to avoid dependency issues)
-    const calcDistance = (lat1, lon1, lat2, lon2) => {
-      const R = 6371000;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    };
-
-    // ✅ Helper function for bearing calculation (inline)
-    const calcBearing = (lat1, lon1, lat2, lon2) => {
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const lat1Rad = lat1 * Math.PI / 180;
-      const lat2Rad = lat2 * Math.PI / 180;
-      const y = Math.sin(dLon) * Math.cos(lat2Rad);
-      const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
-      let bearing = Math.atan2(y, x) * 180 / Math.PI;
-      return ((bearing % 360) + 360) % 360;
-    };
-
-    // Only update heading if user has moved enough distance
-    const distanceMoved = calcDistance(previousLat, previousLng, currentLat, currentLng);
-    
-    if (distanceMoved < MIN_DISTANCE_FOR_HEADING) {
-      // User hasn't moved enough - keep last valid heading
-      return lastValidHeadingRef.current;
-    }
-
-    // ✅ Calculate heading from actual movement direction
-    const calculatedHeading = calcBearing(previousLat, previousLng, currentLat, currentLng);
-    
-    // ✅ If this is first heading or very different, use new heading directly
-    if (lastValidHeadingRef.current === 0) {
-      lastValidHeadingRef.current = calculatedHeading;
-      return calculatedHeading;
-    }
-
-    // Smooth heading transition (prevent sudden jumps)
-    let headingDiff = calculatedHeading - lastValidHeadingRef.current;
-    
-    // Handle 360/0 degree wraparound
-    if (headingDiff > 180) headingDiff -= 360;
-    if (headingDiff < -180) headingDiff += 360;
-    
-    // ✅ Apply faster smoothing for turns - 70% of the difference (was 40%)
-    const smoothedHeading = lastValidHeadingRef.current + headingDiff * 0.7;
-    lastValidHeadingRef.current = ((smoothedHeading % 360) + 360) % 360; // Normalize to 0-360
-    
-    return lastValidHeadingRef.current;
-  };
-
-  // ✅ Helper function to get the appropriate voice alert utility
-  const getVoiceAlertUtils = () => {
-    return EnhancedVoiceAlertUtils; // Use enhanced TTS voice alerts
-  };
+  const getVoiceAlertUtils = () => {return EnhancedVoiceAlertUtils;};
  
-  const [showToast, setShowToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
-  const [toastType, setToastType] = useState("success"); // success, error, info, warning
-
-  // ✅ Get toast icon and color based on type
   const getToastIcon = (type) => {
     switch(type) {
       case "success": return "✓";
@@ -242,18 +153,23 @@ const MapScreen = ({ route, navigation }) => {
     }
   };
 
-  // ✅ Show Center Toast Function with Duration
+  const getMarkerColorByPoint = (checkpointPoint) => {
+    const point = parseInt(checkpointPoint, 10);
+    switch(point) {
+      case 1000: return '#4CAF50'; // Green - START
+      case 3000: return '#FFEB3B'; // Yellow - Regular
+      case 5000: return '#9C27B0'; // Purple - Mandatory
+      case 2000: return '#F44336'; // Red - FINISH
+      default: return '#000000';   // Black - Others
+    }
+  };
+
   const showCenterToast = (message, type = "success") => {
     setToastMessage(message);
     setToastType(type);
     setShowToast(true);
-    
-    // Set duration based on type
     const duration = type === "success" ? 10000 : 5000; // success: 10sec, others: 5sec
-    
-    setTimeout(() => {
-      setShowToast(false);
-    }, duration);
+    setTimeout(() => { setShowToast(false); }, duration);
   };
 
   useEffect(() => {
@@ -265,31 +181,21 @@ const MapScreen = ({ route, navigation }) => {
   const addStartCheckpointTime = () => {
   try {
     if (!eventStartTimeRef.current) return;
-
     const now = new Date();
     const timeTakenSec = Math.floor((now - eventStartTimeRef.current) / 1000);
-
     if (timeTakenSec > 0) {
-      // ✅ Extend end timestamp instead of modifying state
       if (eventEndTimestamp.current) {
         eventEndTimestamp.current = eventEndTimestamp.current + (timeTakenSec * 1000);
       }
-      console.log(`✅ START checkpoint time added: ${timeTakenSec} seconds`);
-      console.log(`⏳ End timestamp extended by: ${timeTakenSec} seconds`);
       setStartTimeAdded(true); // ✅ flag ON once start time added
-
     }
-
   } catch (e) {
     console.log("Error adding START time:", e);
   }
 };
 
-
-  // ✅ Initialize countdown timer from duration parameter
   useEffect(() => {
     if (duration) {
-      // Parse duration string (e.g., "3:00:00" or "2:30:45") to seconds
       const parseDurationToSeconds = (durationStr) => {
         if (!durationStr) return 0;
         const parts = durationStr.split(':');
@@ -301,21 +207,14 @@ const MapScreen = ({ route, navigation }) => {
         }
         return 0;
       };
-      
       const totalSeconds = parseDurationToSeconds(duration);
       setTotalEventDuration(totalSeconds);
-      
-      // ✅ Set end timestamp = current time + duration
       const now = Date.now();
       eventEndTimestamp.current = now + (totalSeconds * 1000);
-      
-      // ✅ Set initial remaining seconds
       setRemainingSeconds(totalSeconds);
     }
   }, [duration]);
 
-  // ✅ Table create
-  // ✅ Keep screen always awake while on MapScreen
   useEffect(() => {
     activateKeepAwake();
     return () => {
@@ -327,39 +226,44 @@ const MapScreen = ({ route, navigation }) => {
     createTables();
   }, []);
 
-  // ✅ Load previously completed checkpoints from database
   useEffect(() => {
     if (event_id) {
       getCompletedCheckpointsForEvent(event_id, (completedCheckpoints) => {
         const previousCheckpointStatus = {};
+        const restoredMarkerColors = {};
         completedCheckpoints.forEach((checkpoint) => {
           previousCheckpointStatus[checkpoint.checkpoint_id] = {
             time: checkpoint.time_stamp,
             completed: true
           };
+          // ✅ FIX: Startup pe bhi START/FINISH ka color blue mat lagao
+          // checkpoint_point aur name dono se check karo
+          const cpPoint = parseInt(checkpoint.checkpoint_point, 10);
+          const cpName = checkpoint.checkpoint_name || '';
+          const isFixed = cpPoint === 1000 || cpPoint === 2000
+            || cpName === 'START' || cpName === 'FINISH';
+          if (!isFixed) {
+            restoredMarkerColors[checkpoint.checkpoint_id] = '#185a9d'; // blue for completed regular checkpoints
+          }
         });
         
         if (Object.keys(previousCheckpointStatus).length > 0) {
           setCheckpointStatus(previousCheckpointStatus);
+          setMarkerColors((prev) => ({ ...prev, ...restoredMarkerColors }));
         }
       });
     }
   }, [event_id]);
 
-  // ✅ Voice Alert: Event Start Announcement
   useEffect(() => {
-    if (!eventStartAnnounced && voiceAlertsEnabled) {
-      // Delay to ensure component is fully mounted
-      const timer = setTimeout(() => {
-        getVoiceAlertUtils().announceEventStart(route.params?.event_name || 'Navigation Event');
-        setEventStartAnnounced(true);
-      }, 2000); // 2 second delay for smooth start
+    // ✅ Map open hote hi event_start sound seedha bajao — no delay
+    // START checkpoint sync hone pe voice alag se nahi bajegi (overlap avoid)
+    if (!voiceAlertsEnabled) return;
+    console.log('🔊 Playing event_start sound immediately on map open');
+    getVoiceAlertUtils().announceEventStart();
+    setEventStartAnnounced(true);
+  }, []); 
 
-      return () => clearTimeout(timer);
-    }
-  }, [eventStartAnnounced, voiceAlertsEnabled]);
-
-  // ✅ Set event end time for time warning alerts
   useEffect(() => {
     if (event_end_date && !eventEndTime) {
       try {
@@ -371,27 +275,19 @@ const MapScreen = ({ route, navigation }) => {
     }
   }, [event_end_date, eventEndTime]);
 
-  // ✅ Time Warning Alert - 15 minutes before event end
   useEffect(() => {
     if (eventEndTime && voiceAlertsEnabled && !timeWarningGiven) {
       const checkTimeWarning = () => {
         const now = new Date();
         const timeDiff = eventEndTime.getTime() - now.getTime();
         const minutesRemaining = Math.floor(timeDiff / (1000 * 60));
-        
-        // Alert when 15 minutes remaining (with 1 minute tolerance)
         if (minutesRemaining <= 15 && minutesRemaining > 0 && !timeWarningGiven) {
           getVoiceAlertUtils().announceTimeWarning(minutesRemaining);
           setTimeWarningGiven(true);
         }
       };
-
-      // Check every minute
       const timeInterval = setInterval(checkTimeWarning, 60000);
-      
-      // Initial check
       checkTimeWarning();
-
       return () => clearInterval(timeInterval);
     }
   }, [eventEndTime, voiceAlertsEnabled, timeWarningGiven]);
@@ -399,51 +295,46 @@ const MapScreen = ({ route, navigation }) => {
   useEffect(() => {
   if (speed_limit && speed_limit !== speedLimit) {
     setSpeedLimit(speed_limit);
-    //showCenterToast(`Speed limit set to ${speed_limit} km/h for this event.`);
   }
 }, [speed_limit]);
 
- 
-// ✅ Internet change listener → sync pending checkpoints
 useEffect(() => {
+  // ✅ FIX: NetInfo mount hote hi pehli baar current state fire karta hai — use skip karo
+  // Sirf actual internet reconnect hone par sync karo
+  let isFirstCall = true;
   const unsubscribe = NetInfo.addEventListener(async (state) => {
+    if (isFirstCall) {
+      isFirstCall = false;
+      return; // Pehli call ignore — yeh sirf current state read hai, actual change nahi
+    }
     if (state.isConnected) {
-      console.log('🔄 Internet connected - checking for pending checkpoints...');
+      console.log('🔄 Internet reconnected - syncing pending checkpoints...');
       await syncPendingCheckpoints();
     }
   });
 
   return () => unsubscribe();
-}, []); // ✅ Remove overspeedCount dependency since we're using ref
+}, []);
 
-// ✅ Function to sync all pending checkpoints
 const syncPendingCheckpoints = async () => {
   try {
     let pending = await getPendingCheckpoints();
-    // Ensure pending is always an array
     if (!Array.isArray(pending)) pending = [];
-
     if (pending.length === 0) {
       console.log('✅ No pending checkpoints to sync');
       return;
     }
-
-    console.log(`🔄 Found ${pending.length} pending checkpoint(s) to sync`);
-
-    // Get token from AsyncStorage
     const token = await AsyncStorage.getItem('authToken');
     if (!token) {
       console.log('❌ No auth token found - cannot sync');
       return;
     }
-
     let successCount = 0;
     let failCount = 0;
 
     for (let item of pending) {
       try {
         console.log(`🔄 Syncing checkpoint: ${item.checkpoint_id} for event: ${item.event_id}`);
-        
         const requestBody = {
           event_id: item.event_id,
           checkpoint_id: item.checkpoint_id,
@@ -470,15 +361,38 @@ const syncPendingCheckpoints = async () => {
         }
         
         if (data && data.status === "success") {
-          // ✅ Mark as synced using checkpoint_id and event_id for reliability
           markSynced(item.id, item.event_id, item.checkpoint_id);
-          console.log(`✅ Successfully synced checkpoint: ${item.checkpoint_id}`);
-          
-          // ✅ Update marker color if it's the current event
           if (item.event_id === event_id) {
-            setMarkerColors((prev) => ({ ...prev, [item.checkpoint_id]: '#185a9d' })); // blue for synced
+            const pendingCpObj = checkpoints.find(c => c.checkpoint_id === item.checkpoint_id);
+            const cpName = pendingCpObj?.checkpoint_name || item.checkpoint_id;
+            const cpPointVal = parseInt(pendingCpObj?.checkpoint_point, 10);
+            // ✅ FIX: checkpoint_point null/missing hone par bhi START/FINISH ko blue mat lagao
+            // Name-based fallback bhi lagao taaki reliable rahe
+            const isFixedMarkerVal = cpPointVal === 1000 || cpPointVal === 2000 
+              || cpName === 'START' || cpName === 'FINISH';
+            // ✅ Blue marker set karo — START/FINISH ka color nahi badlega
+            if (!isFixedMarkerVal) {
+              setMarkerColors((prev) => ({ ...prev, [item.checkpoint_id]: '#185a9d' }));
+            }
+            // ✅ Individual toast + voice per checkpoint when syncing offline data
+            const syncTime = new Date().toLocaleTimeString();
+            if (cpName === 'START') {
+              showCenterToast(`🏁 Event Started (synced offline) at ${syncTime}`, 'success');
+            } else if (cpName !== 'FINISH') {
+              showCenterToast(`Checkpoint "${cpName}" synced successfully at ${syncTime}`, 'success');
+              if (voiceAlertsEnabled) {
+                try {
+                  const completedCount = Object.values(checkpointStatus).filter(s => s.completed).length;
+                  getVoiceAlertUtils().announceCheckpointComplete(cpName, completedCount, checkpoints.length);
+                } catch (e) {}
+              }
+            }
+            if (cpName === 'FINISH') {
+              showCenterToast(`🏁 Event Finished (synced offline) at ${syncTime}`, 'success');
+              setOkayTimeout(30);
+              setEventCompletedModal(true);
+            }
           }
-          
           successCount++;
         } else {
           console.log(`❌ Server rejected sync for checkpoint: ${item.checkpoint_id}`, data.message || 'Unknown error');
@@ -490,104 +404,114 @@ const syncPendingCheckpoints = async () => {
       }
     }
 
-    // ✅ Show summary toast if any syncs occurred
-    if (successCount > 0) {
-      showCenterToast(`✅ Synced ${successCount} pending checkpoint(s)`, 'success');
+    // ✅ Summary toast sirf tab dikhao jab 2+ checkpoints sync ho rahe hon (har ek ka individual toast pehle hi show hua)
+    if (successCount > 1) {
+      showCenterToast(`✅ Synced ${successCount} pending checkpoints`, 'success');
     }
     if (failCount > 0) {
-      showCenterToast(`⚠️ Failed to sync ${failCount} checkpoint(s)`, 'warning');
+      showCenterToast(`⚠️ Failed to sync ${failCount} checkpoint(s) — will retry`, 'warning');
     }
   } catch (err) {
     console.error('❌ Error in syncPendingCheckpoints:', err);
   }
 };
 
-
-
-  // ✅ Simple Speed Limit Checking Function
   const checkSpeedLimit = useCallback((currentSpeedKmh) => {
     const now = Date.now();
-    
-    // ✅ Immediate alert response - no delay
-    if (currentSpeedKmh > speedLimit) {
-      setOverspeedCount(prev => {
-        const newCount = prev + 1;
-        overspeedCountRef.current = newCount; // ✅ Update ref
-        return newCount;
-      });
-      
-      // ✅ Show alert immediately when overspeeding (removed delay condition)
-      if (!isOverspeedAlertShown) {
+    speedHistoryRef.current.push(currentSpeedKmh);
+    if (speedHistoryRef.current.length > SPEED_HISTORY_SIZE) {
+      speedHistoryRef.current.shift();
+    }
+    const smoothedSpeed = Math.round(
+      speedHistoryRef.current.reduce((sum, s) => sum + s, 0) / speedHistoryRef.current.length
+    );
+
+    currentSpeedRef.current = smoothedSpeed;
+    setCurrentSpeed(smoothedSpeed);
+    const rawSpeed = currentSpeedKmh;
+
+    if (rawSpeed > speedLimit) {
+      // ✅ First time entering overspeed — increment counter immediately
+      if (!isCurrentlyOverspeedRef.current) {
+        isCurrentlyOverspeedRef.current = true;
+        const newCount = overspeedCountRef.current + 1;
+        overspeedCountRef.current = newCount;
+        setOverspeedCount(newCount);
+        lastOverspeedCounterTimestampRef.current = now; // ✅ Reset 5s timer on first detection
+        console.log(`⚠️ Overspeed #${newCount} at ${rawSpeed} km/h (limit: ${speedLimit})`);
+      } else if (now - lastOverspeedCounterTimestampRef.current >= 5000) {
+        // ✅ Still overspeeding after 5 seconds — increment counter again
+        lastOverspeedCounterTimestampRef.current = now;
+        const newCount = overspeedCountRef.current + 1;
+        overspeedCountRef.current = newCount;
+        setOverspeedCount(newCount);
+        console.log(`⚠️ Persistent Overspeed #${newCount} at ${rawSpeed} km/h (limit: ${speedLimit}) — still speeding after 5s`);
+      }
+
+      // ✅ Show banner + start flashing animation
+      if (!isOverspeedAlertShownRef.current) {
+        isOverspeedAlertShownRef.current = true;
         setIsOverspeedAlertShown(true);
-        setLastOverspeedAlert(now);
-        
-        // ✅ Voice Alert for Overspeed (immediate response)
-        if (voiceAlertsEnabled && (lastOverspeedVoiceAlert === 0 || now - lastOverspeedVoiceAlert > 5000)) {
-          getVoiceAlertUtils().announceOverspeed(currentSpeedKmh, speedLimit);
-          setLastOverspeedVoiceAlert(now);
+        // Start flashing animation
+        if (flashAnimationRef.current) {
+          flashAnimationRef.current.stop();
         }
+        flashAnimationRef.current = Animated.loop(
+          Animated.sequence([
+            Animated.timing(flashAnim, { toValue: 0.15, duration: 350, useNativeDriver: true }),
+            Animated.timing(flashAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+          ])
+        );
+        flashAnimationRef.current.start();
+        console.log(`🚨 REDUCE SPEED alert SHOWN at ${rawSpeed} km/h`);
       }
-        
-      // ✅ Play sound and vibration whenever speed limit is exceeded
-      try {
-        // Layer 1: Advanced sound (if available)
-        SoundUtils.playSpeedAlert();
-        
-        // Layer 2: Vibration patterns (backup/enhancement) 
-        setTimeout(() => {
-          VibrationSoundUtils.playSpeedAlert();
-        }, 150);
-        
-        // Layer 3: System sounds with escalating urgency
-        setTimeout(() => {
-          SystemSoundUtils.playSpeedAlert();
-        }, 300);
-        
-      } catch (error) {
+
+      if (now - lastSpeedProcessedTimestampRef.current > 1500) {
+        lastSpeedProcessedTimestampRef.current = now;
         try {
-          Vibration.vibrate([0, 400, 150, 400, 150, 400]); // Strong urgent pattern
-        } catch (vibError) {
-          console.log('Error with vibration:', vibError);
+          SoundUtils.playSpeedAlert();
+          setTimeout(() => { VibrationSoundUtils.playSpeedAlert(); }, 150);
+        } catch (error) {
+          console.log('Error playing alert:', error);
         }
       }
+
+      if (voiceAlertsEnabled && (now - lastOverspeedVoiceAlertRef.current > 5000)) {
+        try {
+          getVoiceAlertUtils().announceOverspeed(rawSpeed, speedLimit);
+        } catch (e) {
+          console.log('Voice alert error:', e);
+        }
+        lastOverspeedVoiceAlertRef.current = now;
+      }
+
     } else {
-      // ✅ Immediately reset overspeed alert when speed is back under limit
-      if (isOverspeedAlertShown) {
+      // ✅ Speed back to normal — stop overspeed tracking
+      isCurrentlyOverspeedRef.current = false;
+      lastOverspeedCounterTimestampRef.current = 0; // ✅ Reset 5s interval timer
+      if (isOverspeedAlertShownRef.current) {
+        isOverspeedAlertShownRef.current = false;
         setIsOverspeedAlertShown(false);
-        setLastOverspeedAlert(0);
-        
-        // ✅ Reset voice alert timer immediately when speed normalizes - fresh start for next overspeed
-        setLastOverspeedVoiceAlert(0);
-        
-        // ✅ Stop any ongoing voice alerts immediately when speed comes under limit
+        // ✅ Stop flashing animation and reset opacity
+        if (flashAnimationRef.current) {
+          flashAnimationRef.current.stop();
+          flashAnimationRef.current = null;
+        }
+        flashAnim.setValue(1);
+        console.log(`✅ Speed back to normal: ${rawSpeed} km/h — alert cleared`);
         try {
-          // Stop voice alerts if any TTS is speaking
           const voiceUtils = getVoiceAlertUtils();
           if (voiceUtils && typeof voiceUtils.forceStop === 'function') {
-            voiceUtils.forceStop(); // ✅ Force stop immediately
+            voiceUtils.forceStop();
           }
-          if (voiceUtils && typeof voiceUtils.stopSpeaking === 'function') {
-            voiceUtils.stopSpeaking(); // Stop current voice alert
-          }
-          // Also try to stop with common TTS method names
-          if (voiceUtils && typeof voiceUtils.stop === 'function') {
-            voiceUtils.stop();
-          }
-        } catch (error) {
-          console.log('Error stopping voice alerts:', error);
-        }
-        
-        // ✅ Reset sound alert count and stop any ongoing sounds/vibrations when speed normalizes
-        try {
           SoundUtils.resetAlertCount();
-          VibrationSoundUtils.release(); // Stop any ongoing vibrations
-          SystemSoundUtils.resetAlertCount(); // Reset system sound alerts
+          VibrationSoundUtils.release();
         } catch (error) {
-          console.log('Error resetting alert systems:', error);
+          console.log('Error stopping alerts:', error);
         }
       }
     }
-  }, [speedLimit, lastOverspeedAlert, isOverspeedAlertShown, voiceAlertsEnabled, lastOverspeedVoiceAlert]); // ✅ Remove overspeedCount dependency since we're using ref
+  }, [speedLimit, voiceAlertsEnabled]);
 
   // ✅ Permission aur location fetch
   const getCurrentLocation = () => {
@@ -620,8 +544,6 @@ const syncPendingCheckpoints = async () => {
           const { latitude, longitude } = pos.coords;
           setUserCoords({ latitude, longitude });
           setLastUserLocation({ latitude, longitude });
-          
-          // ✅ Initialize route with starting position
           setUserRoute([{ latitude, longitude }]);
 
           if (mapRef && mapRef.current) {
@@ -636,11 +558,8 @@ const syncPendingCheckpoints = async () => {
                 1000
               );
             } catch (error) {
-              // Error animating to region
             }
           }
-
-          // ✅ Check if near any checkpoint
           checkProximityToCheckpoints(latitude, longitude);
         },
         (error) => {
@@ -654,16 +573,23 @@ const syncPendingCheckpoints = async () => {
     });
   };
 
-  const syncCheckpointToServer = async (checkpointId) => {
-    // ✅ Double-check if checkpoint is already synced (shouldn't happen with new logic, but safety check)
+  const syncCheckpointToServer = async (checkpointId, capturedOverspeedCount = 0) => {
     if (checkpointStatus[checkpointId]?.completed && !syncingCheckpointsRef.current.has(checkpointId)) {
-      return true; // Already synced, no need to show message again
+      return true; 
     }
 
     const netState = await NetInfo.fetch();
     if (!netState.isConnected) {
-      showCenterToast('No internet connection - checkpoint saved locally', 'warning');
-      // ✅ Remove from syncing set on failure
+      const cpObj = checkpoints.find(c => c.checkpoint_id === checkpointId);
+      const cpName = cpObj?.checkpoint_name || checkpointId;
+      const reachedTime = new Date().toLocaleTimeString();
+      showCenterToast(`📴 No internet — Checkpoint "${cpName}" saved locally at ${reachedTime}. Will sync when connected.`, 'warning');
+      if (voiceAlertsEnabled) {
+        try {
+          const completedCount = Object.values(checkpointStatus).filter(s => s.completed).length + 1;
+          getVoiceAlertUtils().announceCheckpointComplete(cpName, completedCount, checkpoints.length);
+        } catch (e) {}
+      }
       syncingCheckpointsRef.current.delete(checkpointId);
       return false;
     }
@@ -673,19 +599,15 @@ const syncPendingCheckpoints = async () => {
       if (!token) {
         showCenterToast('No auth token found', 'error');
         setLoadingCheckpointId(null);
-        // ✅ Remove from syncing set on failure
         syncingCheckpointsRef.current.delete(checkpointId);
         return false;
       }
       const requestBody = {
         event_id: event_id,
-       // category_id: category_id,
         checkpoint_id: checkpointId,
-        over_speed: overspeedCountRef.current // ✅ Use ref for latest value
+        over_speed: capturedOverspeedCount // ✅ Use captured count passed from checkpoint detection (already frozen)
       };
-      
-      // ✅ Debug log to check overspeedCount value being sent
-      
+            
       const res = await fetch(
         "https://rajasthanmotorsports.com/api/events/checkpoints/update",
         {
@@ -700,27 +622,25 @@ const syncPendingCheckpoints = async () => {
       let data = {};
       try { data = await res.json(); } catch {}
       if ((res.status === 200 && data.status === "success") || data.status === "success") {
-        // ✅ Mark as synced using checkpoint_id and event_id for better reliability
         markSynced(null, event_id, checkpointId);
-        
-        setOverspeedCount(0);
-        overspeedCountRef.current = 0; // ✅ Reset ref too
-        setMarkerColors((prev) => ({ ...prev, [checkpointId]: '#185a9d' })); // blue
         const cpObj = checkpoints.find(c => c.checkpoint_id === checkpointId);
         const cpName = cpObj?.checkpoint_name || checkpointId;
-        // ✅ Enhanced toast message with time and center positioning
-        const syncTime = new Date().toLocaleTimeString();
-        const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
-                
-        // ✅ Voice Alert for Checkpoint Completion (only once)
-        if (voiceAlertsEnabled) {
-          const completedCount = Object.values(checkpointStatus).filter(s => s.completed).length + 1; // +1 for current
-          getVoiceAlertUtils().announceCheckpointComplete(cpName, completedCount, checkpoints.length);
+        const cpPoint = parseInt(cpObj?.checkpoint_point, 10);
+        if (cpName !== 'START' && cpName !== 'FINISH') {
+          setMarkerColors((prev) => ({ ...prev, [checkpointId]: '#185a9d' })); // blue for synced
         }
-        
-        showCenterToast(successMessage, 'success');
+        const syncTime = new Date().toLocaleTimeString();
+        if (cpName === 'START') {
+          showCenterToast(`🏁 Event Started! Welcome to the rally at ${syncTime}`, 'success');
+        } else {
+          const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
+          if (voiceAlertsEnabled) {
+            const completedCount = Object.values(checkpointStatus).filter(s => s.completed).length + 1;
+            getVoiceAlertUtils().announceCheckpointComplete(cpName, completedCount, checkpoints.length);
+          }
+          showCenterToast(successMessage, 'success');
+        }
         setLoadingCheckpointId(null);
-        // --- NEW LOGIC: Immediate event exit if "FINISH" - "START" checkpoint reached ---
         if (cpName === "FINISH") {
             setOkayTimeout(30);
             setEventCompletedModal(true);
@@ -728,14 +648,10 @@ const syncPendingCheckpoints = async () => {
         if (cpName === "START") {
             addStartCheckpointTime();
         }
-        // ✅ Keep in syncing set - checkpoint is now fully synced and should never trigger again
         return true;
       } else {
         showCenterToast('Server error: ' + (data.message || 'Failed'), 'error');
-        // ✅ Remove from syncing set on failure so it can be retried
         syncingCheckpointsRef.current.delete(checkpointId);
-        
-        // ✅ Trigger manual sync of pending checkpoints after a delay
         setTimeout(() => {
           syncPendingCheckpoints();
         }, 3000);
@@ -744,10 +660,7 @@ const syncPendingCheckpoints = async () => {
     } catch (err) {
     
       showCenterToast('Network/API error - checkpoint saved locally', 'warning');
-      // ✅ Remove from syncing set on error so it can be retried
       syncingCheckpointsRef.current.delete(checkpointId);
-      
-      // ✅ Trigger manual sync of pending checkpoints after a delay
       setTimeout(() => {
         syncPendingCheckpoints();
       }, 3000);
@@ -756,7 +669,6 @@ const syncPendingCheckpoints = async () => {
     return false;
   };
 
-  // ✅ Checkpoint reach detection (using dynamic accuracy radius)
   const checkProximityToCheckpoints = (lat, lng) => {
     checkpoints.forEach((cp) => {
       const distance = getDistanceFromLatLonInMeters(
@@ -765,25 +677,43 @@ const syncPendingCheckpoints = async () => {
         parseFloat(cp.latitude),
         parseFloat(cp.longitude)
       );
-      // ✅ Use dynamic radius based on checkpoint accuracy, fallback to 10 meters
       const checkpointRadius = (cp.accuracy && !isNaN(parseFloat(cp.accuracy)) && parseFloat(cp.accuracy) > 0) 
         ? parseFloat(cp.accuracy) 
         : 10;
       
       if (distance < checkpointRadius) {
-        // ✅ Check if checkpoint is already completed OR currently syncing
         if (!checkpointStatus[cp.checkpoint_id]?.completed && !syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
-                   
-          // ✅ Immediately mark as syncing to prevent duplicate attempts
           syncingCheckpointsRef.current.add(cp.checkpoint_id);
-          
+          const capturedOverspeedCount = overspeedCountRef.current;
+          // ✅ Reset all overspeed state for fresh segment tracking
+          overspeedCountRef.current = 0;
+          setOverspeedCount(0);
+          isCurrentlyOverspeedRef.current = false;
+          lastOverspeedCounterTimestampRef.current = 0; // ✅ Reset 5s interval timer for next segment
+          speedHistoryRef.current = [];
+          // ✅ Stop overspeed banner + flash animation immediately on checkpoint reach
+          if (isOverspeedAlertShownRef.current) {
+            isOverspeedAlertShownRef.current = false;
+            setIsOverspeedAlertShown(false);
+            if (flashAnimationRef.current) {
+              flashAnimationRef.current.stop();
+              flashAnimationRef.current = null;
+            }
+            flashAnim.setValue(1);
+            try {
+              const voiceUtils = getVoiceAlertUtils();
+              if (voiceUtils && typeof voiceUtils.forceStop === 'function') voiceUtils.forceStop();
+              SoundUtils.resetAlertCount();
+              VibrationSoundUtils.release();
+            } catch (e) {}
+          }
+          console.log(`🏁 Checkpoint "${cp.checkpoint_name}" reached - overspeed count captured: ${capturedOverspeedCount}, reset to 0`);        
           const reachedTime = new Date().toLocaleTimeString();
           setCheckpointStatus((prev) => ({
             ...prev,
             [cp.checkpoint_id]: { time: reachedTime, completed: true },
           }));
           
-          // ✅ Only save checkpoint to database once per event
           saveCheckpoint({
             event_id: event_id, // Use event_id from route params for consistency
             category_id: category_id, // Use category_id from route params for consistency
@@ -796,11 +726,9 @@ const syncPendingCheckpoints = async () => {
             description: cp.description,
             time_stamp: reachedTime,
             status: 'completed',
-            over_speed: overspeedCountRef.current // ✅ Store overspeed count for accurate retry syncing
+            over_speed: capturedOverspeedCount // ✅ Use captured count (not ref which is already reset)
           });
-          
-          syncCheckpointToServer(cp.checkpoint_id);
-          
+          syncCheckpointToServer(cp.checkpoint_id, capturedOverspeedCount); // ✅ Pass captured count
         } else if (checkpointStatus[cp.checkpoint_id]?.completed || syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
         }
       }
@@ -840,8 +768,7 @@ const syncPendingCheckpoints = async () => {
     const lat2Rad = deg2rad(lat2);
     
     const y = Math.sin(dLon) * Math.cos(lat2Rad);
-    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - 
-              Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
     
     let bearing = rad2deg(Math.atan2(y, x));
     bearing = (bearing + 360) % 360; // Normalize to 0-360
@@ -906,11 +833,8 @@ const syncPendingCheckpoints = async () => {
   // ✅ Handle completed event navigation
   const handleEventCompletion = async () => {
     try {
-      // ✅ Save event completion status to AsyncStorage
       await AsyncStorage.setItem(`event_${event_id}_status`, 'completed');
       await AsyncStorage.setItem(`event_${event_id}_completion_time`, new Date().toISOString());
-      
-      // ✅ Optionally save completion statistics
       const completionData = {
         event_id: event_id,
         total_checkpoints: checkpoints.length,
@@ -930,7 +854,6 @@ const syncPendingCheckpoints = async () => {
     }
     
     setEventCompletedModal(false);
-    // Reset navigation stack to prevent going back to map screen
     navigation.reset({
       index: 0,
       routes: [{ name: 'Drawer', params: { screen: 'Dashboard' } }],
@@ -1012,7 +935,6 @@ const syncPendingCheckpoints = async () => {
   };
 
 
-  // ✅ Countdown timer effect - timestamp-based calculation for background reliability
   useEffect(() => {
     if (!eventEndTimestamp.current) return;
     
@@ -1022,34 +944,37 @@ const syncPendingCheckpoints = async () => {
       const newRemaining = Math.max(0, Math.floor(remainingMs / 1000));
       
       setRemainingSeconds(newRemaining);
-      
-      // ✅ Check for 15-minute warning (900 seconds = 15 minutes)
-      if (newRemaining === 900 && !fifteenMinuteWarningGiven && voiceAlertsEnabled) {
+
+      // ✅ Scene 6 — 15-minute warning
+      // Use <= 900 instead of === 900 to avoid missing exact tick (GPS/JS timer jitter se miss ho sakta tha)
+      if (newRemaining <= 900 && newRemaining > 895 && !fifteenMinuteWarningGiven) {
         setFifteenMinuteWarningGiven(true);
-        // Play simple sound alert instead of voice dialogue
         try {
-          SystemSoundUtils.playSystemSound(); // System sound for 15-min warning
+          SystemSoundUtils.playSystemSound(); // Alarm-style beep
+          setTimeout(() => SystemSoundUtils.playSystemSound(), 600); // Double beep
           console.log('🔔 15-minute warning alert played');
         } catch (error) {
           console.log('Error playing 15-minute warning sound:', error);
         }
+        // ✅ Toast on screen
+        showCenterToast('⏰ 15 minutes remaining in the event!', 'warning');
+        // ✅ Voice announcement
+        if (voiceAlertsEnabled) {
+          try { getVoiceAlertUtils().announceTimeWarning(15); } catch (e) {}
+        }
       }
-      
-      // ✅ Check for event completion (00:00:00)
-      if (newRemaining === 0 && voiceAlertsEnabled) {
-        // Play simple sound alert for event completion
+
+      // ✅ Scene 7 — Event time over (timer reached 0)
+      if (newRemaining === 0) {
         try {
-          SystemSoundUtils.playSystemSound(); // System sound for event completion
-          // Add a second alert sound after a brief delay for emphasis
-          setTimeout(() => {
-            SystemSoundUtils.playSystemSound();
-          }, 500);
+          SystemSoundUtils.playSystemSound();
+          setTimeout(() => SystemSoundUtils.playSystemSound(), 500);
           console.log('🏁 Event completion alert played');
-          setOkayTimeout(30);
-          setEventCompletedModal(true);
         } catch (error) {
           console.log('Error playing event completion sound:', error);
         }
+        setOkayTimeout(30);
+        setEventCompletedModal(true);
       }
     }, 1000);
     
@@ -1068,21 +993,11 @@ const syncPendingCheckpoints = async () => {
   const handleUserLocationChange = (e) => {
     try {
       const { latitude, longitude, speed, heading, accuracy } = e.nativeEvent.coordinate;
-      
-      // ✅ Store previous raw location BEFORE smoothing for accurate heading
       const previousRaw = previousRawLocationRef.current || { latitude, longitude };
-      
-      // ✅ Apply GPS smoothing to reduce drift (car stays on road)
       const smoothedLocation = smoothGPSCoordinates(latitude, longitude, accuracy);
-      
-      // ✅ Use smoothed coordinates for display
       setUserRoute((prev) => [...prev, smoothedLocation]);
       setLastUserLocation(smoothedLocation);
-      
-      // ✅ Calculate heading using calculateBearing (same as simulation) for instant rotation
       let newHeading = userHeading;
-      
-      // Check if user has moved enough distance to calculate heading
       const distanceMoved = getDistanceFromLatLonInMeters(
         previousRaw.latitude, 
         previousRaw.longitude, 
@@ -1091,160 +1006,96 @@ const syncPendingCheckpoints = async () => {
       );
       
       if (typeof heading === 'number' && !isNaN(heading) && heading > 0) {
-        // ✅ GPS provides heading - use it directly (like simulation)
         newHeading = heading;
         lastValidHeadingRef.current = heading;
       } else if (distanceMoved >= MIN_DISTANCE_FOR_HEADING) {
-        // ✅ Calculate heading from RAW movement direction using calculateBearing (same as simulation)
         newHeading = calculateBearing(
           previousRaw.latitude, 
           previousRaw.longitude, 
-          latitude, // ✅ Use RAW coordinates for heading
+          latitude, 
           longitude
         );
         lastValidHeadingRef.current = newHeading;
       } else {
-        // ✅ User hasn't moved enough - keep last valid heading
         newHeading = lastValidHeadingRef.current;
       }
       setUserHeading(newHeading);
-      
-      // ✅ Update previous raw location AFTER heading calculation
       previousRawLocationRef.current = { latitude, longitude };
-      
-      // ✅ Check proximity using smoothed coordinates
       checkProximityToCheckpoints(smoothedLocation.latitude, smoothedLocation.longitude);
-      
       if (typeof speed === 'number' && !isNaN(speed)) {
-        // speed in m/s, convert to km/h
         const speedKmh = Math.round(speed * 3.6);
-        setCurrentSpeed(speedKmh);
-        
-        // ✅ Check speed limit
         checkSpeedLimit(speedKmh);
       }
       
-      // ✅ GOOGLE MAPS BEHAVIOR: Continuously center map when following (use smoothed location)
-      if (isFollowingUserRef.current && mapRef.current) {
+      if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
         try {
-          isProgrammaticMove.current = true; // ✅ Mark as programmatic before animation
-          const currentZoom = userCurrentRegion || { latitudeDelta: 0.01, longitudeDelta: 0.01 };
+          isProgrammaticMove.current = true;
           mapRef.current.animateToRegion({
             latitude: smoothedLocation.latitude,
             longitude: smoothedLocation.longitude,
-            latitudeDelta: currentZoom.latitudeDelta,
-            longitudeDelta: currentZoom.longitudeDelta,
-          }, 300); // Fast, smooth centering (reduced from 500ms)
+            latitudeDelta: userManualZoomRef.current.latitudeDelta,
+            longitudeDelta: userManualZoomRef.current.longitudeDelta,
+          }, 400);
         } catch (error) {
-          isProgrammaticMove.current = false; // ✅ Reset on error
+          isProgrammaticMove.current = false;
           console.log('Error auto-following:', error);
         }
       }
     } catch (err) {
-      // ignore
     }
   };
 
-  // ✅ GOOGLE MAPS BEHAVIOR: Detect when user manually moves map to stop following
   const handleRegionChange = (region) => {
-    // ✅ Skip detection if this is a programmatic move (from auto-follow)
     if (isProgrammaticMove.current) {
       setUserCurrentRegion(region);
       return;
     }
-    
-    // ✅ If user is manually interacting with map, stop auto-follow immediately
-    if (isFollowingUser && lastUserLocation && userCurrentRegion) {
-      const distanceFromUser = getDistanceFromLatLonInMeters(
-        region.latitude,
-        region.longitude,
-        lastUserLocation.latitude,
-        lastUserLocation.longitude
-      );
-      
-      // ✅ Detect zoom changes (user zoomed in/out manually)
-      const zoomChanged = Math.abs(region.latitudeDelta - userCurrentRegion.latitudeDelta) > 0.0001 ||
-                         Math.abs(region.longitudeDelta - userCurrentRegion.longitudeDelta) > 0.0001;
-      
-      // ✅ Detect pan/scroll (user moved map even slightly - 10m sensitivity)
-      const mapMoved = distanceFromUser > 5; // 5 meters sensitivity
-      // 10 meters = Very sensitive - slight touch stops it
-      // 30 meters = Medium (current) - small swipe stops it
-      // 50 meters = Less sensitive - medium swipe needed
-      // 100 meters = Least sensitive - must scroll far away
-      // ✅ Stop following if user zoomed OR panned map
-      if (zoomChanged || mapMoved) {
-        isFollowingUserRef.current = false; // ✅ Stop immediately in callbacks
-        setIsFollowingUser(false);
-        //showCenterToast('Auto-follow stopped - Tap Recenter to resume', 'info');
-      }
-    }
-    
+    userManualZoomRef.current = {
+      latitudeDelta: region.latitudeDelta,
+      longitudeDelta: region.longitudeDelta,
+    };
+    const zoom = Math.round(Math.log2(360 / region.latitudeDelta));
+    currentZoomLevelRef.current = Math.max(1, Math.min(20, zoom));
     setUserCurrentRegion(region);
   };
 
   const handleRegionChangeComplete = (region) => {
-    // ✅ Reset flag after animation completes
-    const wasProgrammatic = isProgrammaticMove.current;
     isProgrammaticMove.current = false;
-    
-    // ✅ Only update userCurrentRegion if it was a programmatic move (recenter button)
-    // Don't update for manual user zoom/pan - this preserves the recenter button's fixed zoom level
-    if (wasProgrammatic) {
-      setUserCurrentRegion(region);
-    }
+    isUserTouchingMap.current = false;
+    isPanGestureRef.current = false;
+    // ✅ Always save the latest zoom level after any gesture completes
+    userManualZoomRef.current = {
+      latitudeDelta: region.latitudeDelta,
+      longitudeDelta: region.longitudeDelta,
+    };
+    const zoom = Math.round(Math.log2(360 / region.latitudeDelta));
+    currentZoomLevelRef.current = Math.max(1, Math.min(20, zoom));
+    setUserCurrentRegion(region);
   };
 
-  // Handle back button with confirmation
   useEffect(() => {
     const onBackPress = () => {
-      // If event completed modal is visible, don't allow back button to dismiss it
-      if (eventCompletedModal) {
-        return true; // Prevent default back
-      }
-      
-      Alert.alert(
-        "Close Map",
-        "Do you want to close the map and save/sync all checkpoint data till you reached?",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => {},
-          },
-          {
-            text: "Yes",
-            onPress: () => {
-              // Optionally trigger sync here if needed
-              navigation.goBack();
-            },
-          },
-        ]
-      );
-      return true; // Prevent default back
+      if (eventCompletedModal) return true;
+      Alert.alert("Close Map", "Do you want to close the map and save/sync all checkpoint data till you reached?", [{ text: "Cancel", style: "cancel", onPress: () => {} }, { text: "Yes", onPress: () => { navigation.goBack(); } }]);
+      return true;
     };
     const unsubscribe = BackHandler.addEventListener("hardwareBackPress", onBackPress);
     return () => unsubscribe.remove();
   }, [eventCompletedModal]);
 
-  // Check if all checkpoints are completed
   useEffect(() => {
     if (
       checkpoints.length > 0 &&
       checkpoints.every(cp => checkpointStatus[cp.checkpoint_id]?.completed)
     ) {
-      // ✅ Voice Alert for Event Completion
       if (voiceAlertsEnabled) {
         getVoiceAlertUtils().announceEventFinish(checkpoints.length, duration || 'unknown duration');
       }
-      
-      // Reset the countdown to 30 seconds
       setOkayTimeout(30);
       setEventCompletedModal(true);
     }
   }, [checkpointStatus, checkpoints, voiceAlertsEnabled, duration, setOkayTimeout, setEventCompletedModal]);
   
-  // Handle auto-dismiss countdown for event completed modal
   useEffect(() => {
     let timer;
     if (eventCompletedModal && okayTimeout > 0) {
@@ -1252,7 +1103,6 @@ const syncPendingCheckpoints = async () => {
         setOkayTimeout(prevTime => prevTime - 1);
       }, 1000);
     } else if (eventCompletedModal && okayTimeout === 0) {
-      // Auto-dismiss and navigate to home when timer reaches 0
       handleEventCompletion();
     }
     
@@ -1261,7 +1111,6 @@ const syncPendingCheckpoints = async () => {
     };
   }, [eventCompletedModal, okayTimeout]);
 
-  // Cleanup watch position on unmount
   useEffect(() => {
     return () => {
       if (currentLocationTimeoutRef.current) {
@@ -1270,7 +1119,6 @@ const syncPendingCheckpoints = async () => {
       if (watchId) {
         Geolocation.clearWatch(watchId);
       }
-      // ✅ Clean up sound resources
       try {
         SoundUtils.release();
         VibrationSoundUtils.release();
@@ -1289,7 +1137,6 @@ const syncPendingCheckpoints = async () => {
       Geolocation.clearWatch(watchId);
     }
 
-    // Request location permission first
     const requestLocationPermission = async () => {
       if (Platform.OS === "android") {
         const granted = await PermissionsAndroid.request(
@@ -1313,29 +1160,15 @@ const syncPendingCheckpoints = async () => {
         return;
       }
 
-      // Start watching user location
       const id = Geolocation.watchPosition(
         (position) => {
           const { latitude, longitude, heading, accuracy } = position.coords;
-          
-          // ✅ Store previous raw location BEFORE smoothing for accurate heading
           const previousRaw = previousRawLocationRef.current || { latitude, longitude };
-          
-          // ✅ Apply GPS smoothing to reduce drift
           const smoothedLocation = smoothGPSCoordinates(latitude, longitude, accuracy);
-          
-          // Update user coordinates with smoothed values
           setUserCoords(smoothedLocation);
-          
-          // ✅ Use smoothed coordinates for route
           setUserRoute((prev) => [...prev, smoothedLocation]);
-          
           setLastUserLocation(smoothedLocation);
-          
-          // ✅ Calculate heading using calculateBearing (same as simulation) for instant rotation
           let newHeading = userHeading;
-          
-          // Check if user has moved enough distance to calculate heading
           const distanceMoved = getDistanceFromLatLonInMeters(
             previousRaw.latitude, 
             previousRaw.longitude, 
@@ -1344,11 +1177,9 @@ const syncPendingCheckpoints = async () => {
           );
           
           if (typeof heading === 'number' && !isNaN(heading) && heading > 0) {
-            // ✅ GPS provides heading - use it directly (like simulation)
             newHeading = heading;
             lastValidHeadingRef.current = heading;
           } else if (distanceMoved >= MIN_DISTANCE_FOR_HEADING) {
-            // ✅ Calculate heading from RAW movement direction using calculateBearing (same as simulation)
             newHeading = calculateBearing(
               previousRaw.latitude, 
               previousRaw.longitude, 
@@ -1357,52 +1188,37 @@ const syncPendingCheckpoints = async () => {
             );
             lastValidHeadingRef.current = newHeading;
           } else {
-            // ✅ User hasn't moved enough - keep last valid heading
             newHeading = lastValidHeadingRef.current;
           }
           setUserHeading(newHeading);
-          
-          // ✅ Update previous raw location AFTER heading calculation
           previousRawLocationRef.current = { latitude, longitude };
-          
-          // ✅ Check speed and speed limit
           if (typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)) {
             const speedKmh = Math.round(position.coords.speed * 3.6);
-            setCurrentSpeed(speedKmh);
             checkSpeedLimit(speedKmh);
           }
-          
-          // ✅ GOOGLE MAPS BEHAVIOR: Continuously center on user location when following (use smoothed location)
-          if (isFollowingUserRef.current && mapRef.current) {
+          if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
             try {
-              isProgrammaticMove.current = true; // ✅ Mark as programmatic before animation
-              const currentZoom = userCurrentRegion || { latitudeDelta: 0.01, longitudeDelta: 0.01 };
+              isProgrammaticMove.current = true;
               mapRef.current.animateToRegion({
                 latitude: smoothedLocation.latitude,
                 longitude: smoothedLocation.longitude,
-                latitudeDelta: currentZoom.latitudeDelta,
-                longitudeDelta: currentZoom.longitudeDelta,
-              }, 300); // Fast, smooth centering for real-time tracking
+                latitudeDelta: userManualZoomRef.current.latitudeDelta,
+                longitudeDelta: userManualZoomRef.current.longitudeDelta,
+              }, 400);
             } catch (error) {
-              isProgrammaticMove.current = false; // ✅ Reset on error
+              isProgrammaticMove.current = false;
               console.log('Error auto-following in watchPosition:', error);
             }
           }
           
-          // Check proximity to checkpoints (use smoothed location)
           checkProximityToCheckpoints(smoothedLocation.latitude, smoothedLocation.longitude);
-          
-          // Set following status
-          if (!isFollowingUser) {
-            isFollowingUserRef.current = true;
-            setIsFollowingUser(true);
-          }
+          // ✅ FIX: isFollowingUser state yahan SET mat karo — stale closure se dobara ON ho jaata tha
+          // Following state sirf button press (startFollowingUserLocation call) pe manage hoti hai
         },
         (error) => {
           let msg = 'Location error';
           if (error && error.message) msg += ': ' + error.message;
           if (error && error.code) msg += ` (code: ${error.code})`;
-          
           showCenterToast(msg, 'error');
           isFollowingUserRef.current = false; // ✅ Stop immediately
           setIsFollowingUser(false);
@@ -1414,12 +1230,10 @@ const syncPendingCheckpoints = async () => {
           distanceFilter: 1
         }
       );
-
       setWatchId(id);
     });
   };
 
-  // Function to stop following user location
   const stopFollowingUserLocation = () => {
     if (watchId) {
       Geolocation.clearWatch(watchId);
@@ -1427,21 +1241,9 @@ const syncPendingCheckpoints = async () => {
     }
     isFollowingUserRef.current = false; // ✅ Stop immediately
     setIsFollowingUser(false);
-    
-    // Optional: Clear the route when stopping tracking
-    // setUserRoute([]);
-    
     showCenterToast('Stopped following location', 'info');
   };
 
-  // --- MOVE EVENT SIMULATION STATE ---
-  const [markerPosition, setMarkerPosition] = useState(null); // Simulation marker
-  const [isSimulating, setIsSimulating] = useState(false);
-  const simulationIntervalRef = useRef(null);
-  const [simulatedSpeed, setSimulatedSpeed] = useState(0); // <-- add this line
-
-  const [isTestMode, setIsTestMode] = useState(false);
-  const [isTestModeChecked, setIsTestModeChecked] = useState(false);
 
   useEffect(() => {
     DeviceInfo.isEmulator().then((isEmu) => {
@@ -1492,6 +1294,11 @@ const syncPendingCheckpoints = async () => {
       if (dist < checkpointRadius && !checkpointStatus[cp.checkpoint_id]?.completed && !syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
         console.log(`🎮 [startUserMovementSimulation] Initial position reached checkpoint "${cp.checkpoint_name}" (ID: ${cp.checkpoint_id}) - distance: ${dist.toFixed(2)}m`);
         syncingCheckpointsRef.current.add(cp.checkpoint_id);
+        const capturedOverspeed = overspeedCountRef.current;
+        overspeedCountRef.current = 0;
+        setOverspeedCount(0);
+        isCurrentlyOverspeedRef.current = false;
+        speedHistoryRef.current = [];
         
         setCheckpointStatus((prev) => ({
           ...prev,
@@ -1519,20 +1326,28 @@ const syncPendingCheckpoints = async () => {
                 body: JSON.stringify({
                   event_id: event_id,
                   checkpoint_id: cp.checkpoint_id,
-                  over_speed: overspeedCountRef.current // ✅ Use ref for latest value
+                  over_speed: capturedOverspeed // ✅ Use captured count
                 }),
               }
             );
             let data = {};
             try { data = await res.json(); } catch {}
             if ((res.status === 200 && data.status === "success") || data.status === "success") {
-              setOverspeedCount(0);
-              overspeedCountRef.current = 0; // ✅ Reset ref too
               const cpName = cp.checkpoint_name || cp.checkpoint_id;
               const syncTime = new Date().toLocaleTimeString();
-              const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
-              console.log(`🎯 [startUserMovementSimulation-Initial] Showing sync success toast for checkpoint "${cpName}" (ID: ${cp.checkpoint_id}) at ${syncTime}`);              
-              showCenterToast(successMessage, 'success');
+              if (cpName === 'START') {
+                const welcomeMessage = `🏁 Event Started! Welcome to the rally at ${syncTime}`;
+                showCenterToast(welcomeMessage, 'success');
+              } else {
+                const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
+                if (voiceAlertsEnabled) {
+                  const completedCount = Object.values(checkpointStatus).filter(s => s.completed).length + 1; // +1 for current
+                  getVoiceAlertUtils().announceCheckpointComplete(cpName, completedCount, checkpoints.length);
+                }
+                showCenterToast(successMessage, 'success');
+              }
+              
+              setLoadingCheckpointId(null);
               if (cpName === "FINISH") {
                   setOkayTimeout(30);
                   setEventCompletedModal(true);
@@ -1577,7 +1392,6 @@ const syncPendingCheckpoints = async () => {
         longitude: current.longitude + stepLng,
       };
       
-      // ✅ Calculate heading for car rotation in simulation
       const simulatedHeading = calculateBearing(
         current.latitude,
         current.longitude,
@@ -1585,20 +1399,15 @@ const syncPendingCheckpoints = async () => {
         newPoint.longitude
       );
       setUserHeading(simulatedHeading);
-      
-      // Calculate simulated speed (distance/3s * 3.6) - updated for new interval
       const distMoved = getDistanceFromLatLonInMeters(current.latitude, current.longitude, newPoint.latitude, newPoint.longitude);
       const calculatedSpeed = Math.round((distMoved / 3) * 3.6); // ✅ Updated for 3 second interval
       setSimulatedSpeed(calculatedSpeed);
-      
-      // ✅ Check speed limit for simulation too
       checkSpeedLimit(calculatedSpeed);
       setMarkerPosition(newPoint);
       setUserRoute(prev => [...prev, newPoint]);
       current = newPoint;
       steps++;
       
-      // Check if reached any checkpoint (using dynamic accuracy radius)
       for (let cp of checkpoints) {
         const dist = getDistanceFromLatLonInMeters(
           current.latitude,
@@ -1606,25 +1415,22 @@ const syncPendingCheckpoints = async () => {
           parseFloat(cp.latitude),
           parseFloat(cp.longitude)
         );
-        // ✅ Use dynamic radius based on checkpoint accuracy, fallback to 10 meters
         const checkpointRadius = (cp.accuracy && !isNaN(parseFloat(cp.accuracy)) && parseFloat(cp.accuracy) > 0) 
           ? parseFloat(cp.accuracy) 
           : 10;
         
-        // ✅ Use the same syncing prevention mechanism as real location tracking
         if (dist < checkpointRadius && !checkpointStatus[cp.checkpoint_id]?.completed && !syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
-          console.log(`🎮 [startUserMovementSimulation] Simulation reached checkpoint "${cp.checkpoint_name}" (ID: ${cp.checkpoint_id}) - distance: ${dist.toFixed(2)}m`);
-          
-          // ✅ Add to syncing set immediately to prevent duplicates
           syncingCheckpointsRef.current.add(cp.checkpoint_id);
-          
-          // ✅ Immediately mark as completed to prevent duplicate API calls
+          const capturedOverspeed = overspeedCountRef.current;
+          overspeedCountRef.current = 0;
+          setOverspeedCount(0);
+          isCurrentlyOverspeedRef.current = false;
+          speedHistoryRef.current = [];
           setCheckpointStatus((prev) => ({
             ...prev,
             [cp.checkpoint_id]: { time: new Date().toLocaleTimeString(), completed: true },
           }));
           
-          // Call the same API as 'Mark as Completed (Test)' for this checkpoint
           (async () => {
             setLoadingCheckpointId(cp.checkpoint_id);
             try {
@@ -1644,28 +1450,25 @@ const syncPendingCheckpoints = async () => {
                   },
                   body: JSON.stringify({
                     event_id: event_id,
-                    //category_id: category_id,
                     checkpoint_id: cp.checkpoint_id,
-                    over_speed: overspeedCountRef.current // ✅ Use ref for latest value
+                    over_speed: capturedOverspeed // ✅ Use captured count
                   }),
                 }
               );
-              //console.log(`🎯 [event_id "${event_id}" 🎯 [category_id "${category_id}" 🎯 [checkpoint_id "${cp.checkpoint_id}" 🎯 [over_speed "${14}" `);
               let data = {};
               try { data = await res.json(); } catch {}
               if ((res.status === 200 && data.status === "success") || data.status === "success") {
-                setOverspeedCount(0);
-                overspeedCountRef.current = 0; // ✅ Reset ref too
                 const cpName = cp.checkpoint_name || cp.checkpoint_id;
-                // ✅ Enhanced toast message with time and center positioning
+                const cpPoint = parseInt(cp.checkpoint_point, 10);
                 const syncTime = new Date().toLocaleTimeString();
-                const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
+                if (cpPoint === 1000) {
+                  const welcomeMessage = `� Event Started! Welcome to the rally at ${syncTime}`;
+                  showCenterToast(welcomeMessage, 'success');
+                } else {
+                  const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
+                  showCenterToast(successMessage, 'success');
+                }
                 
-                // ✅ Console log for tracking simulation sync toast display
-                console.log(`🎯 [startUserMovementSimulation] Showing sync success toast for checkpoint "${cpName}" (ID: ${cp.checkpoint_id}) at ${syncTime}`);
-                
-                showCenterToast(successMessage, 'success');
-                // --- NEW LOGIC: Immediate event exit if "FINISH" checkpoint reached ---
                 if (cpName === "FINISH") {
                     setOkayTimeout(30);
                     setEventCompletedModal(true);
@@ -1683,17 +1486,13 @@ const syncPendingCheckpoints = async () => {
           })();
           break;
         } 
-        // else if (dist < checkpointRadius && (checkpointStatus[cp.checkpoint_id]?.completed || syncedCheckpoints.has(cp.checkpoint_id))) {
-        //   // ✅ Log when simulation is in range of already synced checkpoint
-        //   console.log(`🔄 [startUserMovementSimulation] "${cp.checkpoint_name}" (ID: ${cp.checkpoint_id}) - skipping sync`);
-        // }
       }
       if (steps >= 30) { // 30 steps = 1.5 min (3s interval)
         clearInterval(simulationIntervalRef.current);
         setIsSimulating(false);
         Alert.alert("Simulation Stopped", "Random movement simulation completed.");
       }
-    }, 3000); // ✅ Increased from 2000ms to 3000ms for slower movement
+    }, 3000); 
   };
 
   useEffect(() => {
@@ -1702,7 +1501,6 @@ const syncPendingCheckpoints = async () => {
     };
   }, []);
 
-  // Only auto-start simulation on emulator/test mode
   useEffect(() => {
     if (isTestMode) {
       setTimeout(() => {
@@ -1730,8 +1528,8 @@ const syncPendingCheckpoints = async () => {
         ]}>
           {remainingSeconds === 0 && '🚨 '}
           {remainingSeconds <= 900 && remainingSeconds > 0 && '⚠️ '}
-          {remainingSeconds === 0 ? "EVENT TIME OVER!" : startTimeAdded ? `Time Remaining: ${formatTime(remainingSeconds)}` : ""}
-          {/* {remainingSeconds === 0 ? 'EVENT TIME OVER!' : `Time Remaining: ${formatTime(remainingSeconds)}`} */}
+          {remainingSeconds === 0 ? "EVENT TIME OVER!" : remainingSeconds > 0 ? `Time Remaining: ${formatTime(remainingSeconds)}` : ""}
+          {/* ✅ FIX: Show time immediately when duration is set, not just after START checkpoint */}
           {remainingSeconds === 0 && ' 🚨'}
           {remainingSeconds <= 900 && remainingSeconds > 0 && ' ⚠️'}
         </Text>
@@ -1739,42 +1537,39 @@ const syncPendingCheckpoints = async () => {
         <Text style={[
           styles.infoText,
           { 
-            color: (isSimulating ? simulatedSpeed : currentSpeed) > speedLimit ? '#FF5722' : '#333',
-            fontWeight: (isSimulating ? simulatedSpeed : currentSpeed) > speedLimit ? 'bold' : 'normal',
+            color: isOverspeedAlertShown ? '#FF5722' : '#333',
+            fontWeight: isOverspeedAlertShown ? 'bold' : 'normal',
           }
         ]}>
-          {(isSimulating ? simulatedSpeed : currentSpeed) > speedLimit && '⚠️ '}
+          {isOverspeedAlertShown && '⚠️ '}
           Speed: {isSimulating ? simulatedSpeed : currentSpeed}/{speedLimit} km/h
-          {(isSimulating ? simulatedSpeed : currentSpeed) > speedLimit && ' ⚠️'}
+          {isOverspeedAlertShown && ' ⚠️'}
         </Text>
-        {/* ✅ Only show this when actually overspeeding */}
-        {isOverspeedAlertShown && (isSimulating ? simulatedSpeed : currentSpeed) > speedLimit && (
-          <Text style={[styles.infoText, { 
-            color: '#fff', 
-            backgroundColor: '#FF5722', 
-            fontSize: 12, 
-            fontWeight: 'bold',
-            padding: 4,
-            borderRadius: 4,
-            textAlign: 'center'
-          }]}>
-            🚨 REDUCE SPEED! 🚨
-            <Text style={{ fontWeight: 'normal' }}> (Overspeed Count: {overspeedCount})</Text>
-          </Text>
+        {/* ✅ FIX: Show REDUCE SPEED based on isOverspeedAlertShown only (ref-synced, always consistent) */}
+        {isOverspeedAlertShown && (
+          <Animated.View style={{ opacity: flashAnim }}>
+            <Text style={[styles.infoText, { 
+              color: '#fff', 
+              backgroundColor: '#FF1744', 
+              fontSize: 13, 
+              fontWeight: 'bold',
+              paddingVertical: 5,
+              paddingHorizontal: 8,
+              borderRadius: 6,
+              textAlign: 'center',
+              overflow: 'hidden',
+            }]}>
+              🚨 REDUCE SPEED! 🚨{'  '}
+              <Text style={{ fontWeight: 'normal', fontSize: 11 }}>(Overspeed #{overspeedCount})</Text>
+            </Text>
+          </Animated.View>
         )}
       </View>
 
-      
-
-      {/* Top Right Layers Button - ✅ Fixed for iOS notch/Dynamic Island */}
       <View style={[styles.topRightContainer, { top: Platform.OS === 'ios' ? insets.top + 5 : 10 }]}>
-        
-        
-        {/* Abort Event Button */}
         <TouchableOpacity
           style={[styles.iconBtn, { backgroundColor: '#FF5722', marginBottom: 15, marginRight: 0 }]}
           onLongPress={() => {
-            // Long press detected, opening abort modal
             Alert.alert(
               "⚠️ Abort Event",
               "Are you sure you want to abort this event?",
@@ -1906,20 +1701,27 @@ const syncPendingCheckpoints = async () => {
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}  // Now uses Google Maps on both platforms
-       // provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         style={styles.map}
         initialRegion={getBoundingRegion(checkpoints)}
         mapType={mapType}
         showsUserLocation={true} // ✅ Enable native location tracking for smooth following
-        followsUserLocation={false} // ✅ GOOGLE MAPS BEHAVIOR: Manual control only
+        followsUserLocation={false} // ✅ Manual control only
         onUserLocationChange={handleUserLocationChange}
-        onRegionChange={handleRegionChange} // ✅ Track region changes
-        onRegionChangeComplete={handleRegionChangeComplete} // ✅ Detect manual pan
-        userLocationAnnotationTitle="My Current Location" // ✅ Custom title
-        userLocationCalloutEnabled={true} // ✅ Enable callout on tap
-        loadingEnabled={true} // ✅ Show loading indicator
-        loadingIndicatorColor="#2196F3" // ✅ Blue loading color
-        loadingBackgroundColor="rgba(255,255,255,0.8)" // ✅ Semi-transparent background
+        onRegionChange={handleRegionChange}
+        onRegionChangeComplete={handleRegionChangeComplete}
+        onPanDrag={() => {
+          isPanGestureRef.current = true;
+          isUserTouchingMap.current = true;
+          if (isFollowingUserRef.current) {
+            isFollowingUserRef.current = false;
+            setIsFollowingUser(false);
+          }
+        }}
+        userLocationAnnotationTitle="My Current Location"
+        userLocationCalloutEnabled={true}
+        loadingEnabled={true}
+        loadingIndicatorColor="#2196F3"
+        loadingBackgroundColor="rgba(255,255,255,0.8)"
         zoomEnabled={true}
         scrollEnabled={true}
         pitchEnabled={true}
@@ -1930,31 +1732,8 @@ const syncPendingCheckpoints = async () => {
         compassOffset={{x: -10, y: 10}}
         toolbarEnabled={false}
       >
-        {/* --- User Movement Route Polyline (Exact Google Maps Style) --- */}
-        {/* {userRoute && userRoute.length > 1 && (
-          <Polyline
-            coordinates={userRoute}
-            strokeColor="#4285F4"
-            strokeWidth={5}
-            linecap={'round'}
-            linejoin={'round'}
-            geodesic={true}
-            strokePattern={[1, 0]} // Solid line like Google Maps
-          />
-        )} */}
+       
         
-        {/* --- Simulated Movement Route (Test Mode Only) --- */}
-        {isSimulating && userRoute && userRoute.length > 1 && (
-          <Polyline
-            coordinates={userRoute}
-            strokeColor="#4285F4"
-            strokeWidth={5}
-            linecap={'round'}
-            linejoin={'round'}
-            geodesic={true}
-            strokePattern={[1, 0]} // Solid line like Google Maps
-          />
-        )}
         {isSimulating && markerPosition && (
           <Marker 
             coordinate={markerPosition} 
@@ -2048,7 +1827,7 @@ const syncPendingCheckpoints = async () => {
                   backgroundColor: 'rgba(255,255,255,0.7)',
                   borderRadius: 1,
                 }} />
-                
+
                 {/* Rear bumper */}
                 <View style={{
                   position: 'absolute',
@@ -2204,9 +1983,15 @@ const syncPendingCheckpoints = async () => {
           </Marker>
         )}
         {checkpoints.map((cp, idx) => {
-          // ✅ Determine marker color based on completion status
+          // ✅ Determine marker color based on completion status and checkpoint_point
           const isCompleted = checkpointStatus[cp.checkpoint_id]?.completed;
-          const markerColor = isCompleted ? 'green' : (cp.color || 'green');
+          // ✅ Use checkpoint_point value to identify START (1000) and FINISH (2000) — NOT name string
+          // Name can be "Start1", "START POINT" etc — point value is ALWAYS reliable
+          const cpPoint = parseInt(cp.checkpoint_point, 10);
+          const isFixedMarker = cpPoint === 1000 || cpPoint === 2000; // 1000=START Green, 2000=FINISH Red
+          const markerColor = (!isFixedMarker && isCompleted)
+            ? '#185a9d' // blue — completed regular/mandatory checkpoint
+            : getMarkerColorByPoint(cp.checkpoint_point); // original color always for START/FINISH
 
           return (
             <Marker
@@ -2228,7 +2013,6 @@ const syncPendingCheckpoints = async () => {
         <TouchableOpacity
           style={{ position: 'absolute', bottom: 75, right: 20, backgroundColor: '#4caf50', padding: 14, borderRadius: 28, zIndex: 100, elevation: 8 }}
           onPress={async () => {
-            // ✅ Check if checkpoint is already synced or currently syncing
             if (checkpointStatus[selectedCheckpointId]?.completed || syncingCheckpointsRef.current.has(selectedCheckpointId)) {
               console.log(`🔄 [TestButton] Checkpoint "${selectedCheckpointId}" already synced or syncing - skipping`);
               const cpObj = checkpoints.find(c => c.checkpoint_id === selectedCheckpointId);
@@ -2238,10 +2022,13 @@ const syncPendingCheckpoints = async () => {
               return;
             }
             
-            // ✅ Mark as syncing to prevent duplicate attempts
             syncingCheckpointsRef.current.add(selectedCheckpointId);
+            const capturedOverspeed = overspeedCountRef.current;
+            overspeedCountRef.current = 0;
+            setOverspeedCount(0);
+            isCurrentlyOverspeedRef.current = false;
+            speedHistoryRef.current = [];
 
-            // Check internet
             const netState = await NetInfo.fetch();
             if (!netState.isConnected) {
               showCenterToast('No internet connection', 'error');
@@ -2249,8 +2036,6 @@ const syncPendingCheckpoints = async () => {
             }
             setLoadingCheckpointId(selectedCheckpointId);
             try {
-                  
-              // Use event_id and category_id from route.params, and selectedCheckpointId
               const token = await AsyncStorage.getItem('authToken');
               if (!token) {
                 showCenterToast('No auth token found', 'error');
@@ -2271,28 +2056,27 @@ const syncPendingCheckpoints = async () => {
                   body: JSON.stringify({
                     event_id: event_id,
                     checkpoint_id: selectedCheckpointId,
-                    over_speed: overspeedCountRef.current // ✅ Use ref for latest value
+                    over_speed: capturedOverspeed // ✅ Use captured count
                   }),
                 }
               );
              
-              //console.log(`🎯 [event_id "${event_id}" 🎯 [category_id "${category_id}" 🎯 [checkpoint_id "${selectedCheckpointId}" 🎯 [over_speed "${over_speed}" `);
               let data = {};
               try { data = await res.json(); } catch {}
               if ((res.status === 200 && data.status === "success") || data.status === "success") {
-                // Mark as completed
-                setOverspeedCount(0);
-                overspeedCountRef.current = 0; // ✅ Reset ref too
                 const reachedTime = new Date().toLocaleTimeString();
                 setCheckpointStatus((prev) => ({
                   ...prev,
                   [selectedCheckpointId]: { time: reachedTime, completed: true },
                 }));
-                setMarkerColors((prev) => ({ ...prev, [selectedCheckpointId]: '#185a9d' })); // blue
+
                 const cpObj = checkpoints.find(c => c.checkpoint_id === selectedCheckpointId);
                 const cpName = cpObj?.checkpoint_name || selectedCheckpointId;
+                const cpPointTest = parseInt(cpObj?.checkpoint_point, 10);
+                if (cpName !== 'START' && cpName !== 'FINISH') {
+                  setMarkerColors((prev) => ({ ...prev, [selectedCheckpointId]: '#185a9d' })); // blue
+                }
                   
-                // Save checkpoint with new fields
                 saveCheckpoint({
                   event_id: event_id,
                   category_id: category_id,
@@ -2305,29 +2089,26 @@ const syncPendingCheckpoints = async () => {
                   description: cpObj?.description || '',
                   time_stamp: reachedTime,
                   status: 'completed',
-                  over_speed: overspeedCountRef.current // ✅ Store overspeed count for test mode too
+                  over_speed: capturedOverspeed // ✅ Use captured count (already reset for next segment)
                 });
                 markSynced(cp.checkpoint_id, event_id, cp.checkpoint_id);
                 checkSyncStatus( event_id, selectedCheckpointId);
-                // Print local DB log for this checkpoint after saving
                 setTimeout(() => {
                   getCheckpointById(selectedCheckpointId, (checkpointData) => {
-                    // Local DB checkpoint log removed
                     if (!checkpointData) {
-                      // No checkpoint found in local DB
                     }
                   });
                 }, 300); // slight delay to ensure save
                 
-                // ✅ Enhanced toast message with time and center positioning
                 const syncTime = new Date().toLocaleTimeString();
-                const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
+                if (cpName === 'START') {
+                  const welcomeMessage = `� Event Started! Welcome to the rally at ${syncTime}`;
+                  showCenterToast(welcomeMessage, 'success');
+                } else {
+                  const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
+                  showCenterToast(successMessage, 'success');
+                }
                 
-                // ✅ Console log for tracking test button sync toast display
-                console.log(`🎯 [TestButton] Showing sync success toast for checkpoint "${cpName}" (ID: ${selectedCheckpointId}) at ${syncTime}`);
-                
-                showCenterToast(successMessage, 'success');
-                // --- NEW LOGIC: Immediate event exit if "FINISH" checkpoint reached ---
                 if (cpName === "FINISH") {
                     setOkayTimeout(30);
                     setEventCompletedModal(true);
@@ -2339,7 +2120,6 @@ const syncPendingCheckpoints = async () => {
                 showCenterToast('Server error: ' + (data.message || 'Failed'), 'error');
               }
             } catch (err) {
-              // API call error occurred
               showCenterToast('Network/API error', 'error');
               console.error('❌ Error syncing checkpoint:', err);
             }
@@ -2355,7 +2135,6 @@ const syncPendingCheckpoints = async () => {
         </TouchableOpacity>
       )}
       
-      {/* Recenter Button - Positioned above Bottom Tab Bar */}
       <TouchableOpacity
         style={{
           position: 'absolute',
@@ -2377,35 +2156,40 @@ const syncPendingCheckpoints = async () => {
           borderColor: isFollowingUser ? '#2196F3' : '#E0E0E0',
         }}
         onPress={() => {
-          // ✅ GOOGLE MAPS BEHAVIOR: Recenter button zooms and starts auto-following
           if (lastUserLocation && mapRef.current) {
             try {
-              // ✅ Predefined zoom level for comfortable driving view
-              const recenterZoom = {
+              isProgrammaticMove.current = true;
+              isUserTouchingMap.current = false;
+              isPanGestureRef.current = false;
+              // ✅ Recenter: street-level zoom (0.005 delta = ~zoom 17)
+              // animateToRegion use karo — zoom field reliable hai (animateCamera Google Maps pe zoom ignore karta hai)
+              currentZoomLevelRef.current = 17;
+              userManualZoomRef.current = { latitudeDelta: 0.005, longitudeDelta: 0.005 };
+              mapRef.current.animateToRegion({
                 latitude: lastUserLocation.latitude,
                 longitude: lastUserLocation.longitude,
-                latitudeDelta: 0.001, // ✅ Medium zoom - comfortable for navigation (~1km view)
-                longitudeDelta: 0.001, // ✅ Adjust this value: 0.005=close, 0.01=medium, 0.02=far
-              };
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              }, 600);
               
-              // ✅ Smooth camera animation to user location with zoom
-              isProgrammaticMove.current = true; // ✅ Mark as programmatic
-              mapRef.current.animateToRegion(recenterZoom, 1000);
+              setUserCurrentRegion({
+                latitude: lastUserLocation.latitude,
+                longitude: lastUserLocation.longitude,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              });
               
-              // ✅ Update current region state to maintain this zoom level
-              setUserCurrentRegion(recenterZoom);
-              
-              // ✅ GOOGLE MAPS BEHAVIOR: Always enable auto-follow when recenter is pressed
+              // ✅ Always enable auto-follow when recenter is pressed
               if (!isFollowingUser) {
                 startFollowingUserLocation();
               }
-              isFollowingUserRef.current = true; // ✅ Set ref immediately for callbacks
-              setIsFollowingUser(true); // ✅ Set following flag immediately
+              isFollowingUserRef.current = true;
+              setIsFollowingUser(true);
               
               showCenterToast('Following your location', 'success');
             } catch (error) {
-              isProgrammaticMove.current = false; // ✅ Reset on error
-              console.log('Error recentering map:', error);
+              isProgrammaticMove.current = false;
+              console.log('Error centering map:', error);
               showCenterToast('Error centering map', 'error');
             }
           } else {
@@ -2417,27 +2201,37 @@ const syncPendingCheckpoints = async () => {
                 
                 if (mapRef.current) {
                   try {
-                    const recenterZoom = {
+                    isProgrammaticMove.current = true;
+                    isUserTouchingMap.current = false;
+                    isPanGestureRef.current = false;
+                    currentZoomLevelRef.current = 17;
+                    // ✅ Street-level zoom on first location fetch
+                    mapRef.current.animateCamera({
+                      center: { latitude, longitude },
+                      heading: userHeading, // ✅ Face direction of travel
+                      zoom: 17, // ✅ Street-level zoom
+                    }, { duration: 800 });
+                    
+                    userManualZoomRef.current = {
+                      latitudeDelta: 0.005,
+                      longitudeDelta: 0.005,
+                    };
+                    setUserCurrentRegion({
                       latitude,
                       longitude,
-                      latitudeDelta: 0.001, // ✅ Medium zoom - comfortable for navigation
-                      longitudeDelta: 0.001, // ✅ Match with above zoom level
-                    };
-                    
-                    isProgrammaticMove.current = true; // ✅ Mark as programmatic
-                    mapRef.current.animateToRegion(recenterZoom, 600);
-                    setUserCurrentRegion(recenterZoom);
+                      latitudeDelta: 0.005,
+                      longitudeDelta: 0.005,
+                    });
                     setLastUserLocation({ latitude, longitude });
                     setUserCoords({ latitude, longitude });
                     
-                    // ✅ GOOGLE MAPS BEHAVIOR: Start auto-follow after finding location
                     startFollowingUserLocation();
-                    isFollowingUserRef.current = true; // ✅ Set ref immediately
+                    isFollowingUserRef.current = true;
                     setIsFollowingUser(true);
                     
                     showCenterToast('Following your location', 'success');
                   } catch (error) {
-                    isProgrammaticMove.current = false; // ✅ Reset on error
+                    isProgrammaticMove.current = false;
                     console.log('Error centering on location:', error);
                     showCenterToast('Error centering map', 'error');
                   }
@@ -2501,22 +2295,24 @@ const syncPendingCheckpoints = async () => {
           style={styles.tabItem}
           onPress={() => {
             if (isFollowingUser) {
-              // ✅ GOOGLE MAPS BEHAVIOR: Pressing My Location again just re-centers
+              // ✅ Already following — re-center, preserve current zoom
               if (lastUserLocation && mapRef.current) {
                 try {
+                  isProgrammaticMove.current = true;
+                  isUserTouchingMap.current = false;
+                  isPanGestureRef.current = false;
                   mapRef.current.animateToRegion({
                     latitude: lastUserLocation.latitude,
                     longitude: lastUserLocation.longitude,
-                    latitudeDelta: userCurrentRegion?.latitudeDelta || 0.0008, // Keep current zoom
-                    longitudeDelta: userCurrentRegion?.longitudeDelta || 0.0008, // Keep current zoom
-                  }, 800);
-                  // showCenterToast('Map centered on your location', 'info');
+                    latitudeDelta: userManualZoomRef.current.latitudeDelta,
+                    longitudeDelta: userManualZoomRef.current.longitudeDelta,
+                  }, 500);
                 } catch (error) {
+                  isProgrammaticMove.current = false;
                   console.log('Error centering map:', error);
                 }
               }
             } else {
-              // ✅ GOOGLE MAPS BEHAVIOR: First press = zoom in close + start following
               showCenterToast('Getting your location...', 'info');
               Geolocation.getCurrentPosition(
                 (position) => {
@@ -2524,17 +2320,30 @@ const syncPendingCheckpoints = async () => {
                   
                   if (mapRef.current) {
                     try {
-                      // ✅ GOOGLE MAPS BEHAVIOR: Initial zoom is close (street level)
-                      const initialZoomRegion = {
+                      isProgrammaticMove.current = true;
+                      isUserTouchingMap.current = false;
+                      isPanGestureRef.current = false;
+                      currentZoomLevelRef.current = 17;
+                      // ✅ Street-level zoom like Google Maps navigation
+                      mapRef.current.animateCamera({
+                        center: { latitude, longitude },
+                        heading: userHeading, // ✅ Face direction of travel from start
+                        zoom: 17, // ✅ Street-level zoom (Google Maps navigation default)
+                      }, { duration: 800 });
+                      
+                      setHasInitialZoom(true);
+                      
+                      // ✅ Save this as user's zoom preference
+                      userManualZoomRef.current = {
+                        latitudeDelta: 0.005,
+                        longitudeDelta: 0.005,
+                      };
+                      setUserCurrentRegion({
                         latitude,
                         longitude,
-                        latitudeDelta: 0.0008, // ✅ Street level zoom (very close)
-                        longitudeDelta: 0.0008, // ✅ Street level zoom (very close)
-                      };
-                      
-                      mapRef.current.animateToRegion(initialZoomRegion, 1200);
-                      setUserCurrentRegion(initialZoomRegion); // ✅ Remember this zoom level
-                      setHasInitialZoom(true); // ✅ Mark that initial zoom is done
+                        latitudeDelta: 0.005,
+                        longitudeDelta: 0.005,
+                      });
                     } catch (error) {
                       console.log('Error zooming to My Location:', error);
                     }
@@ -2571,37 +2380,13 @@ const syncPendingCheckpoints = async () => {
           </Text>
         </TouchableOpacity>
         
-
         {/* SOS Call Tab */}
-        <TouchableOpacity
-          style={[styles.tabItem, styles.tabItemLast]}
-          onPress={handleSOSCall}
-        >
+        <TouchableOpacity style={[styles.tabItem, styles.tabItemLast]} onPress={handleSOSCall}>
           <View style={[styles.tabIconContainer, { backgroundColor: '#F44336' }]}> 
             <Text style={styles.tabIcon}>🆘</Text>
           </View>
           <Text style={styles.tabLabel}>SOS</Text>
         </TouchableOpacity>
-
-        {/* Clear Route Tab */}
-        {/*
-        <TouchableOpacity
-          style={[styles.tabItem, styles.tabItemLast]}
-          onPress={() => {
-            if (userRoute.length > 0) {
-              setUserRoute([]);
-              showCenterToast('Route cleared', 'info');
-            } else {
-              showCenterToast('No route to clear', 'warning');
-            }
-          }}
-        >
-          <View style={[styles.tabIconContainer, { backgroundColor: '#FF9800' }]}> 
-            <Text style={styles.tabIcon}>🧹</Text>
-          </View>
-          <Text style={styles.tabLabel}>Clear</Text>
-        </TouchableOpacity>
-        */}
       </View>
 
       {/* Checklist Details Modal */}
@@ -2656,19 +2441,20 @@ const syncPendingCheckpoints = async () => {
           return true;
         }}
       >
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)' }}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 24, alignItems: 'center', width: '90%', maxHeight: '90%' }}>
-            <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#185a9d', marginBottom: 12, textAlign: 'center' }}>
-              Event is completed!
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 20, padding: 24, alignItems: 'center', width: '90%', maxHeight: '90%', elevation: 10, shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 4 }, shadowRadius: 8 }}>
+            {/* ✅ Scene 7: Title with celebration emoji */}
+            <Text style={{ fontSize: 26, fontWeight: 'bold', color: '#185a9d', marginBottom: 4, textAlign: 'center' }}>
+              🎉 Event Completed!
             </Text>
-            <Text style={{ fontSize: 16, color: '#333', marginBottom: 12, textAlign: 'center' }}>
-              You can go back to the home page.
+            <Text style={{ fontSize: 14, color: '#666', marginBottom: 14, textAlign: 'center' }}>
+              Congratulations! All done. Redirecting to home...
             </Text>
             
             {/* Checkpoint History Details */}
             <View style={{ width: '100%', marginBottom: 12 }}>
-              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#185a9d', marginBottom: 8, textAlign: 'center' }}>
-                Checkpoint History
+              <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#185a9d', marginBottom: 8, textAlign: 'center' }}>
+                📋 Checkpoint History
               </Text>
               
               {/* Header Row */}
@@ -2690,44 +2476,39 @@ const syncPendingCheckpoints = async () => {
                       <Text style={[styles.modalCell, styles.modalCellLeft]}>{idx + 1}</Text>
                       <Text style={[styles.modalCell, styles.modalCellCenter]}>{cp.checkpoint_name || `Checkpoint ${idx + 1}`}</Text>
                       <Text style={[styles.modalCell, styles.modalCellRight]}>{statusObj?.time || '-'}</Text>
-                      <Text style={[styles.modalCell, styles.modalCellRight]}>{statusObj?.completed ? 'Completed' : 'Not Completed'}</Text>
+                      <Text style={[styles.modalCell, styles.modalCellRight, { color: statusObj?.completed ? '#4CAF50' : '#F44336' }]}>
+                        {statusObj?.completed ? '✓' : '✗'}
+                      </Text>
                     </View>
                   );
                 })}
               </ScrollView>
               
-              <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#555', marginTop: 8, textAlign: 'center' }}>
-                Total Checkpoints: {checkpoints.length}
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#555', marginTop: 8, textAlign: 'center' }}>
+                Total: {Object.values(checkpointStatus).filter(s => s.completed).length}/{checkpoints.length} completed
               </Text>
             </View>
             
-            <Text style={{ 
-              fontSize: 14, 
-              color: okayTimeout <= 5 ? '#F44336' : '#FF5722', 
-              marginBottom: 16, 
-              textAlign: 'center', 
-              fontWeight: 'bold',
-              backgroundColor: okayTimeout <= 5 ? '#FFEBEE' : 'transparent',
-              padding: okayTimeout <= 5 ? 5 : 0,
-              borderRadius: 4
-            }}>
-              {okayTimeout <= 5 ? '⚠️ ' : ''}Auto-closing in {okayTimeout} seconds{okayTimeout <= 5 ? ' ⚠️' : ''}
-            </Text>
-            
+            {/* ✅ Scene 7: OK button WITH countdown number inside — "OK (28)" style */}
             <TouchableOpacity
               style={{ 
-                backgroundColor: okayTimeout <= 5 ? '#1976D2' : '#2196F3', 
-                paddingVertical: 12, 
-                paddingHorizontal: 38, 
-                borderRadius: 22,
-                elevation: okayTimeout <= 5 ? 8 : 4,
-                transform: [{ scale: okayTimeout <= 5 ? 1.05 : 1 }],
+                backgroundColor: okayTimeout <= 5 ? '#D32F2F' : '#185a9d', 
+                paddingVertical: 13, 
+                paddingHorizontal: 44, 
+                borderRadius: 25,
+                elevation: 6,
+                marginTop: 4,
+                minWidth: 160,
+                alignItems: 'center',
                 borderWidth: okayTimeout <= 5 ? 2 : 0,
-                borderColor: '#fff'
+                borderColor: '#FF5722'
               }}
               onPress={handleEventCompletion}
             >
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>FINISH</Text>
+              {/* ✅ "OK (28)" — countdown inside button */}
+              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>
+                OK{okayTimeout > 0 ? ` (${okayTimeout})` : ''}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3332,7 +3113,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    padding: 0,
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderTopWidth: 1,
@@ -3341,44 +3121,30 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: -2 },
-    shadowRadius: 8,
-    zIndex: 100,
-    height: 65,
+    shadowRadius: 4,
   },
-  
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 4,
-    borderRightWidth: 1,
-    borderRightColor: '#e0e0e0',
   },
-  
   tabItemLast: {
-    borderRightWidth: 0,
+    marginRight: 0,
   },
-  
   tabIconContainer: {
     backgroundColor: '#4CAF50',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    borderRadius: 20,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 2,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
+    marginBottom: 4,
   },
-  
   tabIcon: {
     fontSize: 16,
     color: '#fff',
   },
-  
   tabLabel: {
     fontSize: 10,
     color: '#666',
@@ -3387,4 +3153,5 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 });
+
 export default MapScreen;
