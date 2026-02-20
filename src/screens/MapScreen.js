@@ -153,15 +153,39 @@ const MapScreen = ({ route, navigation }) => {
     }
   };
 
-  const getMarkerColorByPoint = (checkpointPoint) => {
+  const getMarkerColorByPoint = (checkpointPoint, checkpointName = '') => {
     const point = parseInt(checkpointPoint, 10);
-    switch(point) {
-      case 1000: return '#4CAF50'; // Green - START
-      case 3000: return '#FFEB3B'; // Yellow - Regular
-      case 5000: return '#9C27B0'; // Purple - Mandatory
-      case 2000: return '#F44336'; // Red - FINISH
-      default: return '#000000';   // Black - Others
+    const name = (checkpointName || '').trim().toUpperCase();
+
+    if (point === 1000) {
+      console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → GREEN (START) #4CAF50`);
+      return '#4CAF50'; // Green - START
+    } else if (point === 2000) {
+      console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → RED (FINISH) #F44336`);
+      return '#F44336'; // Red - FINISH
+    } else if (point === 3000) {
+      console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → YELLOW (Regular) #FFEB3B`);
+      return '#FFEB3B'; // Yellow - Regular
+    } else if (point === 5000) {
+      console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → PURPLE (Mandatory) #9C27B0`);
+      return '#9C27B0'; // Purple - Mandatory
+    } else if (point === 0 || isNaN(point)) {
+      // ✅ Fallback: description was empty → use checkpoint_name to decide color
+      if (name.startsWith('START')) {
+        console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → name-fallback START → GREEN #4CAF50`);
+        return '#4CAF50';
+      } else if (name.startsWith('FINISH')) {
+        console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → name-fallback FINISH → RED #F44336`);
+        return '#F44336';
+      } else {
+        // Regular checkpoint with empty description — treat as Black (Regular)
+        console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → point=0 + empty description → Black (Regular) #000000`);
+        return '#000000';
+      }
     }
+    // Truly unknown value
+    console.log(`🎨 [Color] name="${checkpointName}" | point="${checkpointPoint}" | parsed=${point} → default → BLACK #000000`);
+    return '#000000';
   };
 
   const showCenterToast = (message, type = "success") => {
@@ -1985,13 +2009,14 @@ const syncPendingCheckpoints = async () => {
         {checkpoints.map((cp, idx) => {
           // ✅ Determine marker color based on completion status and checkpoint_point
           const isCompleted = checkpointStatus[cp.checkpoint_id]?.completed;
-          // ✅ Use checkpoint_point value to identify START (1000) and FINISH (2000) — NOT name string
-          // Name can be "Start1", "START POINT" etc — point value is ALWAYS reliable
+          // ✅ Use checkpoint_point value to identify START/FINISH — with name fallback for empty description CPs
           const cpPoint = parseInt(cp.checkpoint_point, 10);
-          const isFixedMarker = cpPoint === 1000 || cpPoint === 2000; // 1000=START Green, 2000=FINISH Red
+          const cpNameUpper = (cp.checkpoint_name || '').trim().toUpperCase();
+          const isFixedMarker = cpPoint === 1000 || cpPoint === 2000
+            || cpNameUpper.startsWith('START') || cpNameUpper.startsWith('FINISH');
           const markerColor = (!isFixedMarker && isCompleted)
             ? '#185a9d' // blue — completed regular/mandatory checkpoint
-            : getMarkerColorByPoint(cp.checkpoint_point); // original color always for START/FINISH
+            : getMarkerColorByPoint(cp.checkpoint_point, cp.checkpoint_name); // pass name for fallback
 
           return (
             <Marker

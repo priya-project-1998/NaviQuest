@@ -177,10 +177,22 @@ export default function EventStartScreen({ navigation, route }) {
       const speedLimit = eventConfig?.speed_limit || event.speedLimit || 60; // Default 60 kmph
       // Get duration from config or fallback to event data
       const duration = eventConfig?.duration || event.duration || 'N/A';
+
+      // ✅ Fix: API sends real point value in `description` field, not `checkpoint_point`
+      // Map description → checkpoint_point so MapScreen color logic works correctly
+      const fixedCheckpoints = (res.data.checkpoints || []).map(cp => {
+        const descPoint = parseInt(cp.description, 10);
+        const hasRealPoint = !isNaN(descPoint) && descPoint > 0;
+        const fixedPoint = hasRealPoint ? String(descPoint) : cp.checkpoint_point;
+        // console.log(`📍 [Fix] id="${cp.checkpoint_id}" | name="${cp.checkpoint_name}" | original checkpoint_point="${cp.checkpoint_point}" | description="${cp.description}" | fixed checkpoint_point="${fixedPoint}"`);
+        return { ...cp, checkpoint_point: fixedPoint };
+      });
+
+      console.log(`📦 [EventStartScreen] Passing ${fixedCheckpoints.length} checkpoints to MapScreen`);
       navigation.navigate('MapScreen', {
         event_id: eventId,
         category_id: eventCategoryId,
-        checkpoints: res.data.checkpoints,
+        checkpoints: fixedCheckpoints,
         kml_path: res.data.kml_path,
         color: res.data.color || '#0000FF',
         event_organizer_no: res.data.event_organizer_no || 'N/A',
