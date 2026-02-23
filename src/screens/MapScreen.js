@@ -1728,7 +1728,7 @@ const syncPendingCheckpoints = async () => {
         style={styles.map}
         initialRegion={getBoundingRegion(checkpoints)}
         mapType={mapType}
-        showsUserLocation={true} // ✅ Enable native location tracking for smooth following
+        showsUserLocation={false} // ✅ Disabled — custom red car marker handles user location display
         followsUserLocation={false} // ✅ Manual control only
         onUserLocationChange={handleUserLocationChange}
         onRegionChange={handleRegionChange}
@@ -1741,8 +1741,6 @@ const syncPendingCheckpoints = async () => {
             setIsFollowingUser(false);
           }
         }}
-        userLocationAnnotationTitle="My Current Location"
-        userLocationCalloutEnabled={true}
         loadingEnabled={true}
         loadingIndicatorColor="#2196F3"
         loadingBackgroundColor="rgba(255,255,255,0.8)"
@@ -1868,141 +1866,114 @@ const syncPendingCheckpoints = async () => {
           </Marker>
         )}
         
-        {/* ✅ Enhanced User Location Marker with Car Icon - Always visible when following */}
-        {isFollowingUser && lastUserLocation && (
+        {/* ✅ User Car Marker - Always visible when location is known (not simulating) */}
+        {/* Same red car in both following ON and OFF states */}
+        {!isSimulating && lastUserLocation && (
           <Marker
             coordinate={lastUserLocation}
-            title="📍 My Live Location"
-            description="Real-time tracking active"
+            title="📍 My Location"
+            description="Your current position"
             anchor={{ x: 0.5, y: 0.5 }}
             flat={true}
             rotation={userHeading}
           >
-           {/* Perfect Google Maps Style Car Icon - 50% Bigger & Red */}
-              <View style={{
-                width: 36,
-                height: 63,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}>
-                <View style={{
-                  width: 27,
-                  height: 42,
-                  backgroundColor: '#FF0000',
-                  borderRadius: 12,
-                  borderWidth: 2,
-                  borderColor: '#fff',
-                  shadowColor: '#000',
-                  shadowOpacity: 0.5,
-                  shadowOffset: { width: 0, height: 4 },
-                  elevation: 8,
-                  overflow: 'hidden',
-                }}>
-                  
-                  {/* Front bumper */}
-                  <View style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 3,
-                    right: 3,
-                    height: 6,
-                    backgroundColor: '#fff',
-                    borderTopLeftRadius: 8,
-                    borderTopRightRadius: 8,
-                  }} />
-
-                  {/* Front windshield */}
-                  <View style={{
-                    position: 'absolute',
-                    top: 6,
-                    left: 4,
-                    right: 4,
-                    height: 9,
-                    backgroundColor: 'rgba(255,255,255,0.8)',
-                    borderRadius: 2,
-                  }} />
-
-                  {/* Side mirrors */}
-                  <View style={{
-                    position: 'absolute',
-                    top: 12,
-                    left: -2,
-                    width: 4,
-                    height: 6,
-                    backgroundColor: '#B30000',
-                    borderRadius: 2,
-                  }} />
-                  <View style={{
-                    position: 'absolute',
-                    top: 12,
-                    right: -2,
-                    width: 4,
-                    height: 6,
-                    backgroundColor: '#B30000',
-                    borderRadius: 2,
-                  }} />
-
-                  {/* Main body */}
-                  <View style={{
-                    position: 'absolute',
-                    top: 15,
-                    left: 2,
-                    right: 2,
-                    height: 18,
-                    backgroundColor: '#FF0000',
-                  }} />
-
-                  {/* Rear windshield */}
-                  <View style={{
-                    position: 'absolute',
-                    bottom: 6,
-                    left: 5,
-                    right: 5,
-                    height: 6,
-                    backgroundColor: 'rgba(255,255,255,0.7)',
-                    borderRadius: 2,
-                  }} />
-
-                  {/* Rear bumper */}
-                  <View style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 4,
-                    right: 4,
-                    height: 5,
-                    backgroundColor: '#990000',
-                    borderBottomLeftRadius: 6,
-                    borderBottomRightRadius: 6,
-                  }} />
-                </View>
-              </View>
-          </Marker>
-        )}
-        
-        {/* Show current location marker if requested (when not following) */}
-        {!isSimulating && !isFollowingUser && showCurrentLocationMarker && currentLocationMarkerCoords && (
-          <Marker
-            coordinate={currentLocationMarkerCoords}
-            title="📍 My Current Location"
-            description="You are here"
-            pinColor="#2196F3"
-          >
+            {/* Car Icon — Always Red */}
             <View style={{
-              backgroundColor: '#2196F3',
-              borderRadius: 20,
-              width: 40,
-              height: 40,
+              width: 36,
+              height: 63,
               justifyContent: 'center',
               alignItems: 'center',
-              borderWidth: 3,
-              borderColor: '#fff',
-              shadowColor: '#000',
-              shadowOpacity: 0.3,
-              shadowOffset: { width: 0, height: 2 },
-              shadowRadius: 4,
-              elevation: 5,
             }}>
-              <Text style={{ fontSize: 18, color: '#fff' }}>📍</Text>
+              <View style={{
+                width: 27,
+                height: 42,
+                backgroundColor: '#FF0000',
+                borderRadius: 12,
+                borderWidth: 2,
+                borderColor: '#fff',
+                shadowColor: '#000',
+                shadowOpacity: 0.5,
+                shadowOffset: { width: 0, height: 4 },
+                elevation: 8,
+                overflow: 'hidden',
+              }}>
+
+                {/* Front bumper */}
+                <View style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 3,
+                  right: 3,
+                  height: 6,
+                  backgroundColor: '#fff',
+                  borderTopLeftRadius: 8,
+                  borderTopRightRadius: 8,
+                }} />
+
+                {/* Front windshield */}
+                <View style={{
+                  position: 'absolute',
+                  top: 6,
+                  left: 4,
+                  right: 4,
+                  height: 9,
+                  backgroundColor: 'rgba(255,255,255,0.8)',
+                  borderRadius: 2,
+                }} />
+
+                {/* Side mirrors */}
+                <View style={{
+                  position: 'absolute',
+                  top: 12,
+                  left: -2,
+                  width: 4,
+                  height: 6,
+                  backgroundColor: '#B30000',
+                  borderRadius: 2,
+                }} />
+                <View style={{
+                  position: 'absolute',
+                  top: 12,
+                  right: -2,
+                  width: 4,
+                  height: 6,
+                  backgroundColor: '#B30000',
+                  borderRadius: 2,
+                }} />
+
+                {/* Main body */}
+                <View style={{
+                  position: 'absolute',
+                  top: 15,
+                  left: 2,
+                  right: 2,
+                  height: 18,
+                  backgroundColor: '#FF0000',
+                }} />
+
+                {/* Rear windshield */}
+                <View style={{
+                  position: 'absolute',
+                  bottom: 6,
+                  left: 5,
+                  right: 5,
+                  height: 6,
+                  backgroundColor: 'rgba(255,255,255,0.7)',
+                  borderRadius: 2,
+                }} />
+
+                {/* Rear bumper */}
+                <View style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 4,
+                  right: 4,
+                  height: 5,
+                  backgroundColor: '#990000',
+                  borderBottomLeftRadius: 6,
+                  borderBottomRightRadius: 6,
+                }} />
+              </View>
             </View>
           </Marker>
         )}
