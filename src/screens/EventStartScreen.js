@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, SafeAreaView, StatusBar } from "react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, SafeAreaView, StatusBar, BackHandler } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import LinearGradient from "react-native-linear-gradient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NotificationBell from '../components/NotificationBell';
@@ -155,6 +156,18 @@ export default function EventStartScreen({ navigation, route }) {
     return () => clearInterval(interval);
   }, [eventStartDate, flagOffDisplay, configLoading]);
 
+  // ✅ Android hardware back button handler — go back to My Events
+  // Using useFocusEffect so it only works when this screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        navigation.navigate('My Events');
+        return true;
+      });
+      return () => backHandler.remove();
+    }, [navigation])
+  );
+
   const formatTime = (ms) => {
     if (ms <= 0) return "00:00:00";
     const totalSeconds = Math.floor(ms / 1000);
@@ -215,10 +228,14 @@ export default function EventStartScreen({ navigation, route }) {
         
         {/* Header - Outside ScrollView */}
         <View style={styles.headerBar}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('My Events')} 
+            style={styles.headerBackBtn}
+          >
             <Text style={styles.headerBackIcon}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Event Start</Text>
+          <View style={{ width: 40 }} />
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -361,16 +378,6 @@ export default function EventStartScreen({ navigation, route }) {
               <Text style={styles.startBtnTextIntegrated}>START</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => {
-                  handleStartEvent();
-                
-              }}
-            >
-              <Text style={styles.startBtnTextIntegrated}>START</Text>
-            </TouchableOpacity>
-
           {/* Event Completed Message */}
           {isEventCompleted && (
             <View style={styles.completedContainer}>
@@ -453,11 +460,10 @@ const styles = StyleSheet.create({
   headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     height: 56,
     width: '100%',
     paddingHorizontal: 12,
-    backgroundColor: '#203a43',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(67,206,162,0.18)',
     shadowColor: '#000',
@@ -468,14 +474,11 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   headerBackBtn: {
-    padding: 12,
-    marginRight: 8,
+    padding: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    height: 44,
-    width: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(67,206,162,0.12)',
+    height: 40,
+    width: 40,
   },
   headerBackIcon: {
     fontSize: 22,
@@ -488,9 +491,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     letterSpacing: 0.5,
-    flex: 1,
     textAlign: 'center',
-    marginLeft: -40,
   },
   gradientBar: {
     height: 5,

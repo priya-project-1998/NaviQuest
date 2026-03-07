@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { View, StyleSheet, Dimensions, TouchableOpacity, Text, PermissionsAndroid, Platform, Alert, Modal, ScrollView, BackHandler, ActivityIndicator, ToastAndroid, TextInput, Linking, Vibration, Animated } from "react-native";
+import { View, StyleSheet, Dimensions, TouchableOpacity, Text, PermissionsAndroid, Platform, Alert, Modal, ScrollView, BackHandler, ActivityIndicator, ToastAndroid, TextInput, Linking, Vibration, Animated, KeyboardAvoidingView } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from "react-native-maps";
 import Geolocation from "@react-native-community/geolocation";
@@ -2515,179 +2515,146 @@ const syncPendingCheckpoints = async () => {
       <Modal
         visible={abortPasswordModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setAbortPasswordModal(false)}
       >
-        <View style={{ 
-          flex: 1, 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          zIndex: 9999
-        }}>
-          <View style={{ 
-            backgroundColor: '#fff', 
-            borderRadius: 20, 
-            padding: 30, 
-            alignItems: 'center', 
-            width: '90%', 
-            maxWidth: 400,
-            elevation: 50,
-            shadowColor: '#000',
-            shadowOpacity: 0.5,
-            shadowOffset: { width: 0, height: 10 },
-            shadowRadius: 20,
-            zIndex: 10000
-          }}>
-            <Text style={{ 
-              fontSize: 24, 
-              fontWeight: 'bold', 
-              color: '#FF5722', 
-              marginBottom: 15, 
-              textAlign: 'center' 
-            }}>
-              ⚠️ Abort Event
-            </Text>
-            <Text style={{ 
-              fontSize: 18, 
-              color: '#333', 
-              marginBottom: 15, 
-              textAlign: 'center',
-              lineHeight: 24
-            }}>
-              To confirm event abort, enter the code below:
-            </Text>
-            
-            <View style={{
-              backgroundColor: '#f8f9fa',
-              borderRadius: 12,
-              padding: 15,
-              marginBottom: 20,
-              borderWidth: 2,
-              borderColor: '#FF5722',
-              alignItems: 'center'
-            }}>
-              <Text style={{
-                fontSize: 14,
-                color: '#666',
-                marginBottom: 8,
-                fontWeight: 'bold'
-              }}>
-                ABORT CODE:
-              </Text>
-              <Text style={{
-                fontSize: 28,
-                fontWeight: 'bold',
-                color: '#FF5722',
-                letterSpacing: 8,
-                fontFamily: 'monospace'
-              }}>
-                {randomAbortCode}
-              </Text>
-              <TouchableOpacity
-                style={{
-                  marginTop: 10,
-                  paddingVertical: 6,
-                  paddingHorizontal: 12,
-                  backgroundColor: '#6c757d',
-                  borderRadius: 8
-                }}
-                onPress={() => {
-                  generateRandomAbortCode();
-                }}
-              >
-                <Text style={{
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 'bold'
-                }}>
-                  Generate New Code
-                </Text>
-              </TouchableOpacity>
-            </View>
-            
-            <TextInput
-              style={{
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <TouchableOpacity
+            style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)' }}
+            activeOpacity={1}
+            onPress={() => {/* dismiss keyboard on backdrop tap */}}
+          >
+            <TouchableOpacity activeOpacity={1} style={{ width: '90%', maxWidth: 400 }}>
+              <View style={{ 
+                backgroundColor: '#fff', 
+                borderRadius: 20, 
+                padding: 24, 
+                alignItems: 'center', 
                 width: '100%',
-                borderWidth: 2,
-                borderColor: '#FF5722',
-                borderRadius: 15,
-                paddingVertical: 15,
-                paddingHorizontal: 20,
-                fontSize: 18,
-                marginBottom: 25,
-                backgroundColor: '#fff',
-                textAlign: 'center',
-                letterSpacing: 4,
-                fontFamily: 'monospace',
-                color: 'black',
-
-              }}
-              placeholder="Enter 4-digit code"
-              placeholderTextColor="#999"
-              keyboardType="numeric"
-              maxLength={4}
-              value={enteredAbortCode}
-              onChangeText={setEnteredAbortCode}
-              autoFocus={true}
-            />
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              width: '100%',
-              gap: 15
-            }}>
-              <TouchableOpacity
-                style={{ 
-                  backgroundColor: '#6c757d', 
-                  paddingVertical: 15, 
-                  paddingHorizontal: 25, 
-                  borderRadius: 25,
-                  flex: 1,
-                  elevation: 3
-                }}
-                onPress={() => {
-                  setAbortPasswordModal(false);
-                  setEnteredAbortCode("");
-                }}
-              >
+                elevation: 50,
+                shadowColor: '#000',
+                shadowOpacity: 0.5,
+                shadowOffset: { width: 0, height: 10 },
+                shadowRadius: 20,
+              }}>
                 <Text style={{ 
-                  color: '#fff', 
+                  fontSize: 24, 
                   fontWeight: 'bold', 
-                  fontSize: 18, 
+                  color: '#FF5722', 
+                  marginBottom: 10, 
                   textAlign: 'center' 
                 }}>
-                  Cancel
+                  ⚠️ Abort Event
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ 
-                  backgroundColor: abortLoading ? '#999' : '#FF5722', 
-                  paddingVertical: 15, 
-                  paddingHorizontal: 25, 
-                  borderRadius: 25,
-                  flex: 1,
-                  elevation: 3
-                }}
-                onPress={handleAbortEventPassword}
-                disabled={abortLoading}
-              >
-                {abortLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={{ 
-                    color: '#fff', 
-                    fontWeight: 'bold', 
-                    fontSize: 18, 
-                    textAlign: 'center' 
-                  }}>
-                    Abort
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+                <Text style={{ 
+                  fontSize: 14, 
+                  color: '#333', 
+                  marginBottom: 14, 
+                  textAlign: 'center',
+                  lineHeight: 20
+                }}>
+                  To confirm event abort, enter the code below:
+                </Text>
+                
+                {/* Abort Code Box */}
+                <View style={{
+                  backgroundColor: '#fff5f2',
+                  borderRadius: 12,
+                  paddingVertical: 10,
+                  paddingHorizontal: 15,
+                  marginBottom: 14,
+                  borderWidth: 2,
+                  borderColor: '#FF5722',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                }}>
+                  <View>
+                    <Text style={{ fontSize: 11, color: '#666', fontWeight: 'bold' }}>ABORT CODE:</Text>
+                    <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#FF5722', letterSpacing: 8, fontFamily: 'monospace' }}>
+                      {randomAbortCode}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={{ paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#6c757d', borderRadius: 8 }}
+                    onPress={() => { generateRandomAbortCode(); }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>Generate{'\n'}New Code</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <TextInput
+                  style={{
+                    width: '100%',
+                    borderWidth: 2,
+                    borderColor: '#FF5722',
+                    borderRadius: 15,
+                    paddingVertical: 12,
+                    paddingHorizontal: 20,
+                    fontSize: 22,
+                    marginBottom: 18,
+                    backgroundColor: '#fff',
+                    textAlign: 'center',
+                    letterSpacing: 6,
+                    fontFamily: 'monospace',
+                    color: 'black',
+                  }}
+                  placeholder="Enter 4-digit code"
+                  placeholderTextColor="#999"
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  value={enteredAbortCode}
+                  onChangeText={setEnteredAbortCode}
+                  autoFocus={false}
+                />
+
+                {/* Buttons */}
+                <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                  <TouchableOpacity
+                    style={{ 
+                      backgroundColor: '#6c757d', 
+                      paddingVertical: 15, 
+                      borderRadius: 25,
+                      flex: 1,
+                      elevation: 3
+                    }}
+                    onPress={() => {
+                      setAbortPasswordModal(false);
+                      setEnteredAbortCode("");
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18, textAlign: 'center' }}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ 
+                      backgroundColor: abortLoading ? '#999' : '#FF5722', 
+                      paddingVertical: 15, 
+                      borderRadius: 25,
+                      flex: 1,
+                      elevation: 3
+                    }}
+                    onPress={handleAbortEventPassword}
+                    disabled={abortLoading}
+                  >
+                    {abortLoading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18, textAlign: 'center' }}>
+                        Abort
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ✅ Toast overlay - Dynamic icons and colors */}
