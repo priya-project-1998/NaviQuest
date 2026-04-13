@@ -240,14 +240,18 @@ export default function Dashboard({ navigation }) {
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <View style={{ width, height: bannerHeight }}>
-                  <View style={[styles.bannerContainer, { height: bannerHeight - 30 }]}>
+                  <View style={styles.bannerContainer}>  
                     <Image source={item.image} style={styles.bannerImage} resizeMode="cover" />
                     <LinearGradient
-                      colors={["transparent", "rgba(0,0,0,0.7)", "rgba(0,0,0,0.9)"]}
-                      style={styles.bannerOverlay}
+                      colors={["transparent", "rgba(0,0,0,0.05)", "rgba(0,0,0,0.15)"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 0, y: 1 }}
+                      style={styles.bannerGradient}
                     >
-                      <Text style={styles.bannerTitle}>{item.title}</Text>
-                      <Text style={styles.bannerDate}>🗓 {item.date}</Text>
+                      <View style={styles.bannerTextContainer}>
+                        <Text style={styles.bannerTitle} numberOfLines={2}>{item.title?.trim()}</Text>
+                        <Text style={styles.bannerDate} numberOfLines={1}>🗓 {item.date}</Text>
+                      </View>
                     </LinearGradient>
                   </View>
                 </View>
@@ -565,51 +569,47 @@ const styles = StyleSheet.create({
   },
 
   bannerContainer: {
-    margin: 15,
-    height: 190,
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.1)',
+    height: '100%',
   },
   bannerImage: { 
     width: "100%", 
     height: "100%",
     borderRadius: 20,
   },
-  bannerOverlay: {
+  bannerGradient: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 15,
-    height: "100%",
-    justifyContent: "flex-end",
-    borderRadius: 20,
+    height: '55%',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    paddingBottom: 15,
+  },
+  bannerTextContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingBottom: 5,
   },
   bannerTitle: { 
-    fontSize: isSmallDevice ? 24 : 28, 
+    fontSize: isSmallDevice ? 18 : 22, 
     color: "#fff", 
     fontWeight: "bold",
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: {width: -1, height: 1},
-    textShadowRadius: 10,
-    marginBottom: 8,
-  },
-  bannerSubtitle: {
-    fontSize: 16,
-    color: "#e0e0e0",
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: {width: -1, height: 1},
-    textShadowRadius: 10,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 3,
+    marginBottom: 6,
   },
   bannerDate: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#feb47b",
-    fontWeight: "600",
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: {width: -1, height: 1},
-    textShadowRadius: 10,
+    fontWeight: "700",
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 2,
   },
 
   dotsContainer: { 

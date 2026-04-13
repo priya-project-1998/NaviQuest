@@ -11,21 +11,26 @@ import {
   ActivityIndicator,
   Share,
   ScrollView,
+  SafeAreaView,
+  PixelRatio,
+  Platform,
+  Alert,
+  BackHandler
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import LinearGradient from "react-native-linear-gradient";
 import EventService from "../services/apiService/event_service";
 import NotificationBell from '../components/NotificationBell';
-import { generateShareMessage } from '../utils/deepLinkUtils';
+import { generateShareMessage, storePendingEventId } from '../utils/deepLinkUtils';
 
 const { width } = Dimensions.get("window");
-const isSmallDevice = width < 375;
-const cardWidth = width - 30;
+const scale = width / 375;
+const normalize = (size) => Math.round(PixelRatio.roundToNearestPixel(size * scale));
 
 export default function MyEventsScreen({ navigation }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [myEvents, setMyEvents] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('current');
 
   const staticEventImages = [
@@ -35,25 +40,22 @@ export default function MyEventsScreen({ navigation }) {
     'https://images.unsplash.com/photo-1570125909232-eb263c188f7e?auto=format&fit=crop&q=80',
   ];
 
-  const fetchMyEvents = async () => {
+  const fetchMyEvents = useCallback(async () => {
     try {
-      setIsLoading(true);
       const response = await EventService.getMyEvents();
       let eventsData = [];
 
-      if (response.status === "success" && response.data) {
+      if ((response.status === "success" || response.code === 200) && response.data) {
         if (Array.isArray(response.data)) {
           eventsData = response.data;
         } else if (response.data.events && Array.isArray(response.data.events)) {
           eventsData = response.data.events;
-        }
-      } else if (response.code === 200 && response.data) {
-        if (Array.isArray(response.data)) {
-          eventsData = response.data;
-        } else if (response.data.events) {
-          eventsData = response.data.events;
+        } else if (response.data.myEvents && Array.isArray(response.data.myEvents)) {
+          eventsData = response.data.myEvents;
         }
       }
+
+      console.log('📦 MyEvents fetched:', eventsData.length, 'events');
 
       if (eventsData.length > 0) {
         const processedEvents = eventsData.map((event, index) => ({
@@ -68,23 +70,27 @@ export default function MyEventsScreen({ navigation }) {
       }
     } catch (error) {
       console.error("Error fetching my events:", error);
-      setMyEvents([]);
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       fetchMyEvents();
-    }, [])
+
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        navigation.navigate('Drawer', { screen: 'Event' });
+        return true;
+      });
+
+      return () => backHandler.remove();
+    }, [fetchMyEvents])
   );
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     await fetchMyEvents();
     setIsRefreshing(false);
-  };
+  }, [fetchMyEvents]);
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -133,25 +139,36 @@ export default function MyEventsScreen({ navigation }) {
 
     const onShare = async () => {
       try {
-        if (typeof Share?.share === 'function') {
-          // Generate share message using deep link utility
-          const shareData = generateShareMessage({
-            event_id: item.event_id,
-            event_name: eventName,
-            event_venue: eventVenue,
-            event_start_date: item.event_start_date
-          });
-          
-          await Share.share({
-            message: shareData.message,
-            url: shareData.url, // For iOS
+        const shareData = generateShareMessage({
+          event_id: item.event_id,
+          event_name: eventName,
+          event_venue: eventVenue,
+          event_start_date: item.event_start_date
+        });
+
+        // ✅ Store event ID for auto-open when user installs app
+        await storePendingEventId(item.event_id);
+
+        // Platform-specific share handling with HTTPS store URL
+        const shareOptions = Platform.select({
+          android: {
             title: shareData.title,
-          });
-        } else {
-          alert('Share feature is not available on this device.');
+            message: `${shareData.message}\n${shareData.url}`
+          },
+          ios: {
+            title: shareData.title,
+            message: shareData.message,
+            url: shareData.url
+          }
+        });
+
+        const result = await Share.share(shareOptions);
+        
+        if (result.action === Share.dismissedAction) {
+          console.log('Share was dismissed');
         }
       } catch (error) {
-        alert('Unable to share event: ' + (error?.message || error));
+        Alert.alert('Share Error', 'Failed to share event');
       }
     };
 
@@ -255,112 +272,101 @@ export default function MyEventsScreen({ navigation }) {
     );
   }
 
+  // Filter events based on active tab
+  const currentEvents = myEvents.filter(event => {
+    if (!event.event_end_date) return true;
+    return new Date(event.event_end_date) >= new Date();
+  });
+  const pastEvents = myEvents.filter(event => {
+    if (!event.event_end_date) return false;
+    return new Date(event.event_end_date) < new Date();
+  });
+  const displayedEvents = activeTab === 'current' ? currentEvents : pastEvents;
+
   const renderEventCard = ({ item }) => <EventCard item={item} navigation={navigation} />;
 
   return (
-    <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradient}>
-      <View style={styles.headerBar}>
-        <TouchableOpacity 
-          onPress={() => {
-            if (navigation.canGoBack()) navigation.goBack();
-            else navigation.navigate('Dashboard');
-          }} 
-          style={styles.headerBackBtn}
-        >
-          <Text style={styles.headerBackIcon}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Events</Text>
-        {/* <NotificationBell style={{ marginLeft: 'auto' }} /> */}
-      </View>
+    <SafeAreaView style={styles.safeArea}>
+      <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradient}>
+        {/* ✅ Fixed Header */}
+        <View style={styles.headerBar}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('Drawer', { screen: 'Event' })} 
+            style={styles.headerBackBtn}
+          >
+            <Text style={styles.headerBackIcon}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>My Events</Text>
+          <View style={{ width: 40 }} />
+        </View>
 
-      {myEvents.length > 0 && (
-        <Text style={styles.motivationText}>
-          🌟 Keep exploring new adventures with your amazing crew!
-        </Text>
-      )}
+        {/* ✅ Always visible - motivation, stats, tabs */}
+        <View style={styles.motivationContainer}>
+          <Text style={styles.motivationText}>
+            🌟 Keep exploring new adventures with your amazing crew!
+          </Text>
+        </View>
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <View style={styles.statIconWrapper}><Text style={styles.statIcon}>📅</Text></View>
-          <View style={styles.statInfo}>
-            <Text style={styles.statNumber}>{myEvents.length}</Text>
-            <Text style={styles.statLabel}>Events</Text>
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            <View style={styles.statIconWrapper}><Text style={styles.statIcon}>📅</Text></View>
+            <View style={styles.statInfo}>
+              <Text style={styles.statNumber}>{myEvents.length}</Text>
+              <Text style={styles.statLabel}>Events</Text>
+            </View>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statCard}>
+            <View style={styles.statIconWrapper}><Text style={styles.statIcon}>👥</Text></View>
+            <View style={styles.statInfo}>
+              <Text style={styles.statNumber}>
+                {myEvents.reduce((total, event) => total + (event.crew_members?.length || 0), 0)}
+              </Text>
+              <Text style={styles.statLabel}>Crew</Text>
+            </View>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statCard}>
+            <View style={styles.statIconWrapper}><Text style={styles.statIcon}>✅</Text></View>
+            <View style={styles.statInfo}>
+              <Text style={styles.statNumber}>{pastEvents.length}</Text>
+              <Text style={styles.statLabel}>Done</Text>
+            </View>
           </View>
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statCard}>
-          <View style={styles.statIconWrapper}><Text style={styles.statIcon}>👥</Text></View>
-          <View style={styles.statInfo}>
-            <Text style={styles.statNumber}>
-              {myEvents.reduce((total, event) => total + (event.crew_members?.length || 0), 0)}
+
+        <View style={styles.tabRow}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'current' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('current')}
+          >
+            <Text style={[styles.tabBtnText, activeTab === 'current' && styles.tabBtnTextActive]}>
+              Current Events ({currentEvents.length})
             </Text>
-            <Text style={styles.statLabel}>Crew</Text>
-          </View>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statCard}>
-          <View style={styles.statIconWrapper}><Text style={styles.statIcon}>✅</Text></View>
-          <View style={styles.statInfo}>
-            <Text style={styles.statNumber}>
-              {myEvents.filter(event => {
-                if (!event.event_end_date) return false;
-                const endDate = new Date(event.event_end_date);
-                return endDate < new Date();
-              }).length}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'past' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('past')}
+          >
+            <Text style={[styles.tabBtnText, activeTab === 'past' && styles.tabBtnTextActive]}>
+              Past Events ({pastEvents.length})
             </Text>
-            <Text style={styles.statLabel}>Done</Text>
-          </View>
+          </TouchableOpacity>
         </View>
-      </View>
 
-      <View style={{flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 18, marginBottom: 10}}>
-        <TouchableOpacity
-          style={{
-            backgroundColor: activeTab === 'current' ? '#43cea2' : 'rgba(67,206,162,0.12)',
-            paddingHorizontal: 24,
-            paddingVertical: 10,
-            borderRadius: 16,
-            marginRight: 10,
-          }}
-          onPress={() => setActiveTab('current')}
-        >
-          <Text style={{color: activeTab === 'current' ? '#fff' : '#43cea2', fontWeight: '700', fontSize: 15}}>Current Events</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={{
-            backgroundColor: activeTab === 'past' ? '#43cea2' : 'rgba(67,206,162,0.12)',
-            paddingHorizontal: 24,
-            paddingVertical: 10,
-            borderRadius: 16,
-          }}
-          onPress={() => setActiveTab('past')}
-        >
-          <Text style={{color: activeTab === 'past' ? '#fff' : '#43cea2', fontWeight: '700', fontSize: 15}}>Past Events</Text>
-        </TouchableOpacity>
-      </View>
-
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#feb47b" />
-          <Text style={styles.loadingText}>Loading your events...</Text>
-        </View>
-      ) : (
-        activeTab === 'current' ? (
+        {/* ✅ Event list with pull-to-refresh */}
+        <View style={{ flex: 1 }}>
           <FlatList
-            data={myEvents.filter(event => {
-              if (!event.event_end_date) return true;
-              const endDate = new Date(event.event_end_date);
-              return endDate >= new Date();
-            })}
-            keyExtractor={(item) => item.event_id?.toString() || item.id?.toString()}
+            data={displayedEvents}
+            keyExtractor={(item) => item.event_id?.toString() || item.id?.toString() || Math.random().toString()}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}
                 onRefresh={onRefresh}
-                colors={['#feb47b']}
-                tintColor={'#feb47b'}
+                colors={['#43cea2']}
+                tintColor={'#43cea2'}
                 title="Pull to refresh..."
-                titleColor={'#feb47b'}
+                titleColor={'#43cea2'}
               />
             }
             renderItem={renderEventCard}
@@ -368,59 +374,51 @@ export default function MyEventsScreen({ navigation }) {
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyTitle}>No Events Found</Text>
+                <Text style={styles.emptyIcon}>{activeTab === 'current' ? '📅' : '🏁'}</Text>
+                <Text style={styles.emptyTitle}>
+                  {activeTab === 'current' ? 'No Current Events' : 'No Past Events'}
+                </Text>
                 <Text style={styles.emptySubtitle}>
-                  You haven't participated in any events yet. Join exciting events to see them here!
+                  {activeTab === 'current'
+                    ? 'Pull down to refresh or join exciting events to see them here!'
+                    : 'You don\'t have any completed events yet.'}
                 </Text>
               </View>
             }
           />
-        ) : (
-          <FlatList
-            data={myEvents.filter(event => {
-              if (!event.event_end_date) return false;
-              const endDate = new Date(event.event_end_date);
-              return endDate < new Date();
-            })}
-            keyExtractor={(item) => item.event_id?.toString() || item.id?.toString()}
-            renderItem={renderEventCard}
-            contentContainerStyle={styles.listContainer}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyTitle}>No Past Events Found</Text>
-                <Text style={styles.emptySubtitle}>
-                  You haven't participated in any past events yet.
-                </Text>
-              </View>
-            }
-          />
-        )
-      )}
-    </LinearGradient>
+        </View>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 // Styles remain exactly same as your previous code
 const styles = StyleSheet.create({
-    gradient: { flex: 1 },
-  headerBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', height: 56, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(67,206,162,0.18)', shadowColor: '#000', shadowOpacity: 0.10, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6, elevation: 4, zIndex: 10 },
-  headerBackBtn: { padding: 6, marginRight: 8, justifyContent: 'center', alignItems: 'center', height: 40, width: 40 },
+  gradient: { flex: 1 },
+  safeArea: { flex: 1, backgroundColor: '#0f2027' },
+  headerBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 56, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(67,206,162,0.18)', shadowColor: '#000', shadowOpacity: 0.10, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6, elevation: 4, zIndex: 10 },
+  headerBackBtn: { padding: 6, justifyContent: 'center', alignItems: 'center', height: 40, width: 40 },
   headerBackIcon: { fontSize: 22, color: '#43cea2', fontWeight: '700', textAlign: 'center' },
-  headerTitle: { fontSize: 20, color: '#fff', fontWeight: '700', letterSpacing: 0.5, flex: 1, textAlign: 'center', marginLeft: -40 },
-  statsContainer: { flexDirection: 'row', backgroundColor: 'transparent', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(67,206,162,0.3)', minHeight: 50, width: '100%' },
+  headerTitle: { fontSize: 20, color: '#fff', fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
+  statsContainer: { flexDirection: 'row', backgroundColor: 'transparent', borderRadius: 14, padding: 12, marginHorizontal: 15, borderWidth: 1, borderColor: 'rgba(67,206,162,0.3)', minHeight: 50 },
   statCard: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 },
   statIconWrapper: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(67,206,162,0.12)', borderWidth: 1, borderColor: 'rgba(67,206,162,0.25)', justifyContent: 'center', alignItems: 'center' },
   statIcon: { fontSize: 12 },
   statInfo: { flex: 1 },
-  statNumber: { fontSize: isSmallDevice ? 16 : 18, fontWeight: '800', color: '#43cea2', marginBottom: 1, textShadowColor: 'rgba(67,206,162,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  statLabel: { fontSize: isSmallDevice ? 9 : 10, color: '#e0e0e0', fontWeight: '600', opacity: 0.8, letterSpacing: 0.2 },
+  statNumber: { fontSize: normalize(18), fontWeight: '800', color: '#43cea2', marginBottom: 1, textShadowColor: 'rgba(67,206,162,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  statLabel: { fontSize: normalize(10), color: '#e0e0e0', fontWeight: '600', opacity: 0.8, letterSpacing: 0.2 },
   statDivider: { width: 1, backgroundColor: 'rgba(67,206,162,0.3)', marginHorizontal: 8, height: 28 },
-  motivationText: { fontSize: 13, color: '#4CAF50', fontWeight: '600', textAlign: 'center', letterSpacing: 0.2, lineHeight: 18, marginTop: 6, marginBottom: 12, paddingHorizontal: 15 },
-  listContainer: { paddingHorizontal: 15, paddingTop: 10, paddingBottom: 30 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 100 },
+  motivationContainer: { paddingVertical: 12, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center' },
+  motivationText: { fontSize: normalize(14), color: '#4CAF50', fontWeight: '700', textAlign: 'center', letterSpacing: 0.3, lineHeight: 22 },
+  tabRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 14, marginBottom: 10, paddingHorizontal: 15 },
+  tabBtn: { backgroundColor: 'rgba(67,206,162,0.12)', paddingHorizontal: 22, paddingVertical: 10, borderRadius: 16, marginHorizontal: 5 },
+  tabBtnActive: { backgroundColor: '#43cea2' },
+  tabBtnText: { color: '#43cea2', fontWeight: '700', fontSize: 14 },
+  tabBtnTextActive: { color: '#fff' },
+  listContainer: { paddingHorizontal: 15, paddingTop: 10, paddingBottom: 30, flexGrow: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 16, color: '#e0e0e0', marginTop: 15, textAlign: 'center' },
-  eventCard: { width: cardWidth, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 24, marginBottom: 20, shadowColor: "#000", shadowOpacity: 0.4, shadowOffset: { width: 0, height: 8 }, shadowRadius: 16, elevation: 12, borderWidth: 1, borderColor: "rgba(254, 180, 123, 0.15)", overflow: 'hidden' },
+  eventCard: { width: '100%', maxWidth: 400, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 24, marginBottom: 20, shadowColor: "#000", shadowOpacity: 0.4, shadowOffset: { width: 0, height: 8 }, shadowRadius: 16, elevation: 12, borderWidth: 1, borderColor: "rgba(254, 180, 123, 0.15)", overflow: 'hidden', alignSelf: 'center' },
   cardGradient: { borderRadius: 24, overflow: 'hidden' },
   glassOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 24, zIndex: 1, pointerEvents: 'none' },
   imageWrapper: { borderRadius: 20, overflow: 'hidden', marginBottom: 8, elevation: 6, shadowColor: '#feb47b', shadowOpacity: 0.18, shadowOffset: { width: 0, height: 4 }, shadowRadius: 10, position: 'relative' },
@@ -428,7 +426,7 @@ const styles = StyleSheet.create({
   statusBadge: { position: 'absolute', top: 12, right: 12, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 18, zIndex: 2, shadowColor: '#000', shadowOpacity: 0.18, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 4 },
   statusText: { color: '#fff', fontWeight: '700', fontSize: 13, letterSpacing: 0.5 },
   eventContent: { padding: 20, backgroundColor: 'rgba(15, 15, 20, 0.95)', borderTopWidth: 1, borderColor: 'rgba(254, 180, 123, 0.2)' },
-  eventName: { fontSize: isSmallDevice ? 18 : 20, fontWeight: "800", color: "#fff", marginBottom: 8 },
+  eventName: { fontSize: normalize(20), fontWeight: "800", color: "#fff", marginBottom: 8 },
   chipRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 6 },
   chip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', marginRight: 6, marginBottom: 6 },
   chipIcon: { fontSize: 12, marginRight: 4, color: '#fff' },
@@ -451,8 +449,8 @@ const styles = StyleSheet.create({
   crewContact: { fontSize: 10, color: '#e0e0e0' },
   crewMetadata: { flexDirection: 'row', marginTop: 2 },
   crewMetaText: { fontSize: 10, color: '#43cea2', fontWeight: '600' },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 50 },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
+  emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyTitle: { fontSize: 18, color: '#fff', fontWeight: '700', marginBottom: 6 },
-  emptySubtitle: { fontSize: 13, color: '#ccc', textAlign: 'center', paddingHorizontal: 20 }
-
+  emptySubtitle: { fontSize: 13, color: '#ccc', textAlign: 'center', paddingHorizontal: 20, lineHeight: 20 }
 })

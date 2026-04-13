@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal } from "react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, SafeAreaView, StatusBar, BackHandler } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import LinearGradient from "react-native-linear-gradient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NotificationBell from '../components/NotificationBell';
 import EventService from "../services/apiService/event_service";
-import { generateShareMessage } from '../utils/deepLinkUtils';
+import { generateShareMessage, storePendingEventId } from '../utils/deepLinkUtils';
 
 const { width } = Dimensions.get("window");
 
@@ -155,6 +156,18 @@ export default function EventStartScreen({ navigation, route }) {
     return () => clearInterval(interval);
   }, [eventStartDate, flagOffDisplay, configLoading]);
 
+  // ✅ Android hardware back button handler — go back to My Events
+  // Using useFocusEffect so it only works when this screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        navigation.navigate('My Events');
+        return true;
+      });
+      return () => backHandler.remove();
+    }, [navigation])
+  );
+
   const formatTime = (ms) => {
     if (ms <= 0) return "00:00:00";
     const totalSeconds = Math.floor(ms / 1000);
@@ -177,10 +190,22 @@ export default function EventStartScreen({ navigation, route }) {
       const speedLimit = eventConfig?.speed_limit || event.speedLimit || 60; // Default 60 kmph
       // Get duration from config or fallback to event data
       const duration = eventConfig?.duration || event.duration || 'N/A';
+
+      // ✅ Fix: API sends real point value in `description` field, not `checkpoint_point`
+      // Map description → checkpoint_point so MapScreen color logic works correctly
+      const fixedCheckpoints = (res.data.checkpoints || []).map(cp => {
+        const descPoint = parseInt(cp.description, 10);
+        const hasRealPoint = !isNaN(descPoint) && descPoint > 0;
+        const fixedPoint = hasRealPoint ? String(descPoint) : cp.checkpoint_point;
+        // console.log(`📍 [Fix] id="${cp.checkpoint_id}" | name="${cp.checkpoint_name}" | original checkpoint_point="${cp.checkpoint_point}" | description="${cp.description}" | fixed checkpoint_point="${fixedPoint}"`);
+        return { ...cp, checkpoint_point: fixedPoint };
+      });
+
+      console.log(`📦 [EventStartScreen] Passing ${fixedCheckpoints.length} checkpoints to MapScreen`);
       navigation.navigate('MapScreen', {
         event_id: eventId,
         category_id: eventCategoryId,
-        checkpoints: res.data.checkpoints,
+        checkpoints: fixedCheckpoints,
         kml_path: res.data.kml_path,
         color: res.data.color || '#0000FF',
         event_organizer_no: res.data.event_organizer_no || 'N/A',
@@ -198,22 +223,28 @@ export default function EventStartScreen({ navigation, route }) {
 
   return (
     <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradientBg}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" backgroundColor="#0f2027" />
+        
+        {/* Header - Outside ScrollView */}
+        <View style={styles.headerBar}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('My Events')} 
+            style={styles.headerBackBtn}
+          >
+            <Text style={styles.headerBackIcon}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Event Start</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Decorative Circles */}
         <View style={styles.bgCircle1} />
         <View style={styles.bgCircle2} />
 
         {/* Gradient Top Bar */}
         <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradientBar} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
-
-        {/* Header */}
-        <View style={styles.headerBar}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-            <Text style={styles.headerBackIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Event Start</Text>
-          {/* <NotificationBell style={{ marginLeft: 'auto' }} /> */}
-        </View>
 
         {/* Banner/Icon */}
         <View style={styles.bannerContainer}>
@@ -242,33 +273,50 @@ export default function EventStartScreen({ navigation, route }) {
           <View style={styles.infoRow}><Text style={styles.detailIcon}>📍</Text><Text style={styles.label}>GPS Accuracy</Text><Text style={[styles.value, styles.success]}>{gpsAccuracyDisplay}</Text></View>
           {/* Buttons */}
           <View style={styles.featureBtnRow}>
-            <TouchableOpacity style={styles.featureBtn} onPress={async () => {
+            <TouchableOpacity 
+              style={styles.featureBtn} 
+              activeOpacity={0.8}
+              onPress={async () => {
               try {
-                // Generate share message using deep link utility
                 const shareData = generateShareMessage({
                   event_id: eventId,
                   event_name: eventName,
                   event_venue: eventVenue,
                   event_start_date: eventStartDate
                 });
-                
-                await Share.share({
-                  message: shareData.message,
-                  url: shareData.url, // For iOS
-                  title: shareData.title,
+
+                // ✅ TEMPORARY WORKAROUND: Store event ID for auto-open when user installs app
+                await storePendingEventId(eventId);
+
+                // Platform-specific share handling with HTTPS store URL
+                const shareOptions = Platform.select({
+                  android: {
+                    title: shareData.title,
+                    message: `${shareData.message}\n${shareData.url}`
+                  },
+                  ios: {
+                    title: shareData.title,
+                    message: shareData.message,
+                    url: shareData.url
+                  }
                 });
+
+                const result = await Share.share(shareOptions);
+                
+                if (result.action === Share.dismissedAction) {
+                  console.log('Share was dismissed');
+                }
               } catch (error) {
-                Alert.alert('Error', 'Failed to share event');
+                Alert.alert('Share Error', 'Failed to share event');
               }
             }}>
-              <LinearGradient colors={["#43cea2", "#185a9d"]} style={styles.featureBtnGradient}>
-                <Text style={styles.featureBtnText}>Share Event</Text>
-              </LinearGradient>
+              <Text style={styles.featureBtnText}>Share Event</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.featureBtn} onPress={() => navigation.navigate("EventDetails", { event })}>
-              <LinearGradient colors={["#43cea2", "#185a9d"]} style={styles.featureBtnGradient}>
-                <Text style={styles.featureBtnText}>View Details</Text>
-              </LinearGradient>
+            <TouchableOpacity 
+              style={styles.featureBtn} 
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate("EventDetails", { event })}>
+              <Text style={styles.featureBtnText}>View Details</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -315,20 +363,21 @@ export default function EventStartScreen({ navigation, route }) {
           {/* Start Button - Only show if event is not completed */}
           {!isEventCompleted && (
             <TouchableOpacity
-              style={[styles.startBtnIntegrated, (!canStartEvent || isEventAborted) && styles.startBtnDisabled]}
+              style={[
+                styles.startBtnIntegrated, 
+                (!canStartEvent || isEventAborted) && styles.startBtnDisabled
+              ]}
               disabled={!canStartEvent || isEventAborted}
+              activeOpacity={0.8}
               onPress={() => {
                 if (canStartEvent && !isEventAborted) {
                   handleStartEvent();
                 }
               }}
             >
-              <LinearGradient colors={(!canStartEvent || isEventAborted) ? ["#666", "#888"] : ["#43cea2", "#185a9d"]} style={styles.startBtnGradientIntegrated}>
-                <Text style={styles.startBtnTextIntegrated}>START</Text>
-              </LinearGradient>
+              <Text style={styles.startBtnTextIntegrated}>START</Text>
             </TouchableOpacity>
           )}
-          
           {/* Event Completed Message */}
           {isEventCompleted && (
             <View style={styles.completedContainer}>
@@ -377,18 +426,6 @@ export default function EventStartScreen({ navigation, route }) {
          
         </View>
 
-        {/* Testing Button - For Development Only */}
-        {/* <TouchableOpacity
-          style={styles.testingBtn}
-          onPress={() => {
-            handleStartEvent();
-          }}
-        >
-          <LinearGradient colors={["#FF6B6B", "#EE5A6F"]} style={styles.testingBtnGradient}>
-            <Text style={styles.testingBtnText}>🧪 TEST START (Dev Only)</Text>
-          </LinearGradient>
-        </TouchableOpacity>   */}
-
         {/* Location Info */}
         <View style={styles.locationInfoRow}>
           <Text style={styles.locationInfoText}>
@@ -399,6 +436,7 @@ export default function EventStartScreen({ navigation, route }) {
         {/* Motivation */}
         <Text style={styles.startInfo}>Click Only When Asked To Take Start</Text>
       </ScrollView>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
@@ -407,6 +445,9 @@ const styles = StyleSheet.create({
   gradientBg: {
     flex: 1,
     minHeight: '100%',
+  },
+  safeArea: {
+    flex: 1,
   },
   container: {
     flex: 1,
@@ -419,11 +460,10 @@ const styles = StyleSheet.create({
   headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     height: 56,
     width: '100%',
     paddingHorizontal: 12,
-    backgroundColor: '#203a43',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(67,206,162,0.18)',
     shadowColor: '#000',
@@ -434,14 +474,11 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   headerBackBtn: {
-    padding: 12,
-    marginRight: 8,
+    padding: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    height: 44,
-    width: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(67,206,162,0.12)',
+    height: 40,
+    width: 40,
   },
   headerBackIcon: {
     fontSize: 22,
@@ -454,9 +491,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     letterSpacing: 0.5,
-    flex: 1,
     textAlign: 'center',
-    marginLeft: -40,
   },
   gradientBar: {
     height: 5,
@@ -499,10 +534,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   glassCard: {
-    width: width * 0.92,
+    width: '100%',
     backgroundColor: 'rgba(15,15,20,0.95)',
     borderRadius: 24,
     padding: 20,
+    paddingBottom: 24,
     marginTop: 30,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -576,7 +612,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   glassStatusCard: {
-    width: width * 0.92,
+    width: '100%',
     backgroundColor: 'rgba(15,15,20,0.95)',
     borderRadius: 24,
     padding: 20,
@@ -662,7 +698,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginTop: 22,
-    width: width * 0.92,
+    width: '100%',
   },
   locationInfoText: {
     fontSize: 14,
@@ -690,9 +726,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 60,
+    paddingTop: Platform.OS === 'ios' ? 0 : 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'flex-start',
+    width: '100%',
   },
   startBtnIntegrated: {
     marginTop: 14,
@@ -700,24 +739,19 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     alignSelf: 'center',
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 4,
-    elevation: 2,
-    overflow: 'hidden',
+    backgroundColor: '#43cea2',
+    paddingVertical: 14,
   },
-  startBtnGradientIntegrated: {
-    borderRadius: 14,
-    width: '100%',
-    paddingVertical: 13,
-    alignItems: 'center',
+  startBtnDisabled: {
+    backgroundColor: '#888',
+    opacity: 0.6,
   },
   startBtnTextIntegrated: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 18,
     letterSpacing: 1,
+    textAlign: 'center',
   },
   startHint: {
     marginTop: 8,
@@ -783,36 +817,30 @@ const styles = StyleSheet.create({
   },
   featureBtnRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     marginTop: 16,
-    marginBottom: 4,
+    marginBottom: 10,
+    width: '100%',
   },
   featureBtn: {
     flex: 1,
-    marginHorizontal: 6,
+    marginHorizontal: 5,
+    backgroundColor: '#43cea2',
     borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  featureBtnGradient: {
-    borderRadius: 12,
-    paddingVertical: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     alignItems: 'center',
-    width: '100%',
+    justifyContent: 'center',
   },
   featureBtnText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 15,
-    letterSpacing: 0.5,
+    fontSize: 14,
+    textAlign: 'center',
   },
   testingBtn: {
     marginTop: 18,
-    width: width * 0.92,
+    width: '100%',
     borderRadius: 14,
     alignItems: 'center',
     alignSelf: 'center',

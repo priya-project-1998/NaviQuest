@@ -2,7 +2,7 @@ import React, { forwardRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 
 import HomeScreen from '../screens/HomeScreen';
@@ -60,7 +60,8 @@ function DrawerNavigator() {
       screenOptions={{
         ...defaultScreenOptions,
         headerStyle: {
-          height: 65,
+          // Don't set fixed height on iOS - let it automatically handle safe area
+          ...(Platform.OS === 'android' ? { height: 65 } : {}),
           backgroundColor: 'transparent',
           elevation: 0,
           shadowOpacity: 0,
@@ -164,59 +165,11 @@ function DrawerNavigator() {
       {/* <Drawer.Screen name="Feedback" component={FeedbackScreen} /> */}
       <Drawer.Screen name="Invite User" component={InviteUserScreen} />
       {/* <Drawer.Screen name="Rate Us" component={RateUsScreen} /> */}
-      <Drawer.Screen name="Location Permission Policy" component={LocationPermissionPolicyScreen} />
       <Drawer.Screen name="Settings" component={SettingsScreen} />
+      <Drawer.Screen name="Location Permission Policy" component={LocationPermissionPolicyScreen} />
       <Drawer.Screen name="Privacy Policy" component={PrivacyPolicyScreen} />
       <Drawer.Screen name="Terms & Condition" component={TermsConditionScreen} />
       <Drawer.Screen name="About App" component={AboutAppScreen} />
-      <Drawer.Screen 
-        name="Delete Account" 
-        component={() => null}
-        options={{
-          drawerLabel: 'Delete Account',
-          // drawerIcon: ({ color, size }) => (
-          //   <Icon name="delete-outline" color={color} size={size} />
-          // ),
-          // drawerItemStyle: { marginTop: 8, backgroundColor: '#fff0f0' },
-          // drawerLabelStyle: { color: '#d32f2f', fontWeight: 'bold' },
-        }}
-        listeners={({ navigation }) => ({
-          drawerItemPress: (e) => {
-            e.preventDefault();
-            // Import AuthService and Alert at the top if not already
-            import('../services/apiService/auth_service').then(({ default: AuthService }) => {
-              import('react-native').then(({ Alert }) => {
-                Alert.alert(
-                  'Confirm Delete',
-                  'Are you sure you want to delete your account? This action cannot be undone.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete',
-                      onPress: async () => {
-                        try {
-                          const response = await AuthService.deleteAccount();
-                          if (response.status === 200) {
-                            // Immediately call logout functionality after successful delete
-                            AuthService.logout().then(() => {
-                              navigation.replace('LoginScreen');
-                              Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
-                            });
-                          } else {
-                            Alert.alert('Error', 'Failed to delete account. Please try again.');
-                          }
-                        } catch (error) {
-                          Alert.alert('Error', 'An error occurred while deleting your account.');
-                        }
-                      },
-                    },
-                  ]
-                );
-              });
-            });
-          },
-        })}
-      />
     </Drawer.Navigator>
   );
 }

@@ -27,7 +27,8 @@
         <!-- Google Maps API Key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyAp1xWED4tTm6FRk6oW35IPQWW9ml45ApQ" />
+            android:value="AIzaSyAmWnKWPX3B-jUWglvZwO5_pGnxo-9VNR8" />
+           <!-- android:value="AIzaSyAp1xWED4tTm6FRk6oW35IPQWW9ml45ApQ" /> -->
 
         <!-- Splash Activity -->
         <activity

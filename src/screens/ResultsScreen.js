@@ -1,10 +1,35 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, PixelRatio, Platform } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import EventService from "../services/apiService/event_service";
 import ResultService from "../services/apiService/result_service";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
+const scale = width / 375;
+
+// Responsive size helper
+const normalize = (size) => {
+  const newSize = size * scale;
+  if (Platform.OS === 'ios') {
+    return Math.round(PixelRatio.roundToNearestPixel(newSize));
+  }
+  return Math.round(PixelRatio.roundToNearestPixel(newSize)) - 1;
+};
+
+// Cross-platform shadow helper
+const crossPlatformShadow = (elevation = 3, shadowColor = '#000') => ({
+  ...Platform.select({
+    ios: {
+      shadowColor: shadowColor,
+      shadowOffset: { width: 0, height: elevation / 2 },
+      shadowOpacity: 0.15 + (elevation * 0.02),
+      shadowRadius: elevation,
+    },
+    android: {
+      elevation: elevation,
+    },
+  }),
+});
 
 const ResultsScreen = () => {
   const [selectedResult, setSelectedResult] = useState(null);
@@ -270,13 +295,23 @@ const ResultsScreen = () => {
         {/* Header - Only show when not viewing details */}
         {!selectedResult && (
           <View style={styles.headerContainer}>
-            <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.headerGradient}>
-              <Text style={styles.headerTitle}>🏆 Race Results</Text>
-              <Text style={styles.headerSubtitle}>Your completed events ({myEvents.length})</Text>
-              <TouchableOpacity style={styles.refreshButton} onPress={fetchMyEvents}>
-                <Text style={styles.refreshIcon}>↻</Text>
-              </TouchableOpacity>
-            </LinearGradient>
+            <View style={styles.headerWrapper}>
+              <LinearGradient 
+                colors={["#667eea", "#764ba2"]} 
+                style={styles.headerGradientBg}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+              />
+              <View style={styles.headerContentRow}>
+                <View style={styles.headerTextSection}>
+                  <Text style={styles.headerTitle}>🏆 Race Results</Text>
+                  <Text style={styles.headerSubtitle}>Your completed events ({myEvents.length})</Text>
+                </View>
+                <TouchableOpacity style={styles.refreshButton} onPress={fetchMyEvents}>
+                  <Text style={styles.refreshIcon}>↻</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         )}
 
@@ -305,22 +340,26 @@ const ResultsScreen = () => {
                            idx % 4 === 2 ? ["#4facfe", "#00f2fe"] : 
                            ["#43e97b", "#38f9d7"]} 
                     style={styles.eventCardGradient}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 0}}
                   >
-                    <View style={styles.eventIconContainer}>
-                      <Text style={styles.eventIcon}>{idx === 0 ? '🏁' : idx === 1 ? '🚵‍♂️' : idx === 2 ? '🚶‍♂️' : idx === 3 ? '🏎️' : '🚴‍♂️'}</Text>
-                    </View>
-                    <View style={styles.eventTextContainer}>
-                      <Text style={styles.eventTitle}>{event.event_name}</Text>
-                      <Text style={styles.eventSubtitle}>
-                        {loadingEventId === event.event_id ? "Loading..." : `📊 Event ID: ${event.event_id} • Tap to view results`}
-                      </Text>
-                    </View>
-                    <View style={styles.eventArrowContainer}>
-                      {loadingEventId === event.event_id ? (
-                        <ActivityIndicator size="small" color="#f7f7fa" />
-                      ) : (
-                        <Text style={styles.eventArrow}>→</Text>
-                      )}
+                    <View style={styles.eventCardContent}>
+                      <View style={styles.eventIconContainer}>
+                        <Text style={styles.eventIcon}>{idx === 0 ? '🏁' : idx === 1 ? '🚵‍♂️' : idx === 2 ? '🚶‍♂️' : idx === 3 ? '🏎️' : '🚴‍♂️'}</Text>
+                      </View>
+                      <View style={styles.eventTextContainer}>
+                        <Text style={styles.eventTitle} numberOfLines={1}>{event.event_name}</Text>
+                        <Text style={styles.eventSubtitle} numberOfLines={1}>
+                          {loadingEventId === event.event_id ? "Loading..." : "📊 Tap to view results"}
+                        </Text>
+                      </View>
+                      <View style={styles.eventArrowContainer}>
+                        {loadingEventId === event.event_id ? (
+                          <ActivityIndicator size="small" color="#f7f7fa" />
+                        ) : (
+                          <Text style={styles.eventArrow}>→</Text>
+                        )}
+                      </View>
                     </View>
                   </LinearGradient>
                 </TouchableOpacity>
@@ -425,7 +464,11 @@ const ResultsScreen = () => {
                   {/* Earned Checkpoints Details */}
                   {selectedResult.performance.checkpoints > 0 && (
                     <View style={styles.earnedSummaryCard}>
-                      <LinearGradient colors={["rgba(235, 250, 255, 0.95)", "rgba(220, 245, 245, 0.95)"]} style={styles.earnedSummaryGradient}>
+                      <LinearGradient 
+                        colors={["rgba(235, 250, 255, 0.95)", "rgba(220, 245, 245, 0.95)"]} 
+                        style={styles.summaryGradientBg}
+                      />
+                      <View style={styles.summaryContent}>
                         <Text style={styles.earnedSummaryTitle}>✅ Completed Checkpoints Details</Text>
                         <Text style={styles.earnedSummaryText}>
                           You completed {selectedResult.performance.checkpoints} out of {selectedResult.performance.totalCheckpoints} checkpoints
@@ -435,24 +478,28 @@ const ResultsScreen = () => {
                             .filter(cp => cp.status === "completed")
                             .map((cp, idx) => (
                               <View key={`earned-${selectedResult.eventId}-${cp.sr}-${idx}`} style={styles.earnedPointItem}>
-                                <Text style={styles.earnedPointName}>{cp.name}</Text>
-                                <Text style={styles.earnedPointTime}>{cp.time}</Text>
-                                <Text style={styles.earnedPointValue}>+{cp.points} pts</Text>
+                                <Text style={styles.earnedPointName} numberOfLines={1}>{cp.name}</Text>
+                                <Text style={styles.earnedPointTime} numberOfLines={1}>{cp.time}</Text>
+                                <Text style={styles.earnedPointValue}>+{cp.points}</Text>
                               </View>
                             ))
                           }
                         </View>
                         <Text style={styles.totalEarnedPoints}>
-                          Total Points Earned: {selectedResult.performance.totalPoints} pts
+                          Total Earned: {selectedResult.performance.totalPoints} pts
                         </Text>
-                      </LinearGradient>
+                      </View>
                     </View>
                   )}
 
                   {/* Missed Checkpoints Details */}
                   {selectedResult.performance.missedCheckpoints > 0 && (
                     <View style={styles.missedSummaryCard}>
-                      <LinearGradient colors={["rgba(255, 235, 235, 0.95)", "rgba(255, 220, 220, 0.95)"]} style={styles.missedSummaryGradient}>
+                      <LinearGradient 
+                        colors={["rgba(255, 235, 235, 0.95)", "rgba(255, 220, 220, 0.95)"]} 
+                        style={styles.summaryGradientBg}
+                      />
+                      <View style={styles.summaryContent}>
                         <Text style={styles.missedSummaryTitle}>❌ Missed Checkpoints Details</Text>
                         <Text style={styles.missedSummaryText}>
                           You missed {selectedResult.performance.missedCheckpoints} out of {selectedResult.performance.totalCheckpoints} checkpoints
@@ -462,18 +509,18 @@ const ResultsScreen = () => {
                             .filter(cp => cp.status === "missed")
                             .map((cp, idx) => (
                               <View key={`missed-${selectedResult.eventId}-${cp.sr}-${idx}`} style={styles.missedPointItem}>
-                                <Text style={styles.missedPointName}>{cp.name}</Text>
-                                <Text style={styles.missedPointValue}>-{cp.potentialPoints} pts</Text>
+                                <Text style={styles.missedPointName} numberOfLines={1}>{cp.name}</Text>
+                                <Text style={styles.missedPointValue}>-{cp.potentialPoints}</Text>
                               </View>
                             ))
                           }
                         </View>
                         <Text style={styles.totalMissedPoints}>
-                          Total Points Lost: {(selectedResult.checkpoints || [])
+                          Total Lost: {(selectedResult.checkpoints || [])
                             .filter(cp => cp.status === "missed")
                             .reduce((sum, cp) => sum + cp.potentialPoints, 0)} pts
                         </Text>
-                      </LinearGradient>
+                      </View>
                     </View>
                   )}
                   <View style={styles.statsGrid}>
@@ -543,13 +590,13 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: '#f7f7fa',
-    fontSize: 16,
-    marginTop: 10,
+    fontSize: normalize(16),
+    marginTop: normalize(10),
     fontWeight: '600',
   },
   container: { 
     flex: 1, 
-    paddingTop: 40,
+    paddingTop: Platform.OS === 'ios' ? normalize(50) : normalize(40),
   },
   containerFullScreen: {
     paddingTop: 0,
@@ -557,159 +604,164 @@ const styles = StyleSheet.create({
   glassCard: {
     width: width * 0.92,
     backgroundColor: '#1e293b',
-    borderRadius: 24,
-    padding: 20,
-    marginTop: 18,
-    marginBottom: 10,
+    borderRadius: normalize(24),
+    padding: normalize(14),
+    marginTop: normalize(18),
+    marginBottom: normalize(10),
     alignSelf: 'center',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    elevation: 8,
+    ...crossPlatformShadow(8, '#667eea'),
     borderWidth: 1,
     borderColor: '#334155',
+    overflow: 'hidden',
   },
   headerContainer: {
-    marginBottom: 20,
-    marginHorizontal: 20,
+    marginBottom: normalize(20),
+    marginHorizontal: normalize(20),
   },
-  headerGradient: {
-    borderRadius: 20,
-    padding: 20,
+  headerWrapper: {
+    borderRadius: normalize(20),
+    overflow: 'hidden',
+    ...crossPlatformShadow(10, '#667eea'),
+  },
+  headerGradientBg: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: normalize(20),
+  },
+  headerContentRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: normalize(20),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
-    shadowColor: '#667eea',
-    shadowOpacity: 0.4,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 15,
-    elevation: 10,
-    position: 'relative',
+    borderRadius: normalize(20),
+  },
+  headerTextSection: {
+    flex: 1,
+  },
+  headerContent: {
+    flex: 1,
   },
   refreshButton: {
-    position: 'absolute',
-    right: 15,
-    top: 15,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: normalize(40),
+    height: normalize(40),
+    borderRadius: normalize(20),
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: normalize(10),
   },
   refreshIcon: {
-    fontSize: 20,
+    fontSize: normalize(20),
     color: '#f7f7fa',
     fontWeight: 'bold',
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: normalize(24),
+    fontWeight: Platform.OS === 'ios' ? '800' : 'bold',
     color: '#f7f7fa',
-    marginBottom: 4,
+    marginBottom: normalize(4),
   },
   headerSubtitle: {
-    fontSize: 16,
+    fontSize: normalize(16),
     color: 'rgba(247,247,250,0.8)',
+    fontWeight: '500',
   },
   listContainer: { 
-    paddingBottom: 30,
-    paddingHorizontal: 20,
+    paddingBottom: normalize(30),
+    paddingHorizontal: normalize(20),
   },
   emptyStateContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
+    paddingVertical: normalize(60),
   },
   emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: 20,
+    fontSize: normalize(64),
+    marginBottom: normalize(20),
   },
   emptyStateTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: normalize(20),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#f7f7fa',
-    marginBottom: 12,
+    marginBottom: normalize(12),
     textAlign: 'center',
   },
   emptyStateText: {
-    fontSize: 16,
+    fontSize: normalize(16),
     color: 'rgba(247,247,250,0.7)',
     textAlign: 'center',
-    marginBottom: 30,
-    paddingHorizontal: 20,
-    lineHeight: 24,
+    marginBottom: normalize(30),
+    paddingHorizontal: normalize(20),
+    lineHeight: normalize(24),
+    fontWeight: '500',
   },
   refreshButtonLarge: {
     backgroundColor: '#667eea',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 25,
-    shadowColor: '#667eea',
-    shadowOpacity: 0.4,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 5,
+    paddingHorizontal: normalize(30),
+    paddingVertical: normalize(12),
+    borderRadius: normalize(25),
+    ...crossPlatformShadow(5, '#667eea'),
   },
   refreshButtonText: {
     color: '#f7f7fa',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
   },
   eventCard: {
-    marginBottom: 16,
-    borderRadius: 18,
+    marginBottom: normalize(16),
+    borderRadius: normalize(18),
     overflow: 'hidden',
-    shadowColor: '#667eea',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 15,
-    elevation: 8,
+    ...crossPlatformShadow(8, '#667eea'),
   },
   eventCardGradient: {
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderRadius: normalize(18),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
+    overflow: 'hidden',
+  },
+  eventCardContent: {
+    padding: normalize(20),
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   eventIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: normalize(50),
+    height: normalize(50),
+    borderRadius: normalize(25),
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: normalize(16),
   },
   eventIcon: {
-    fontSize: 24,
+    fontSize: normalize(24),
   },
   eventTextContainer: {
     flex: 1,
   },
   eventTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#f7f7fa',
-    marginBottom: 4,
+    marginBottom: normalize(4),
   },
   eventSubtitle: {
-    fontSize: 14,
+    fontSize: normalize(14),
     color: 'rgba(247,247,250,0.8)',
+    fontWeight: '500',
   },
   eventArrowContainer: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: normalize(30),
+    height: normalize(30),
+    borderRadius: normalize(15),
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   eventArrow: {
-    fontSize: 18,
+    fontSize: normalize(18),
     color: '#f7f7fa',
     fontWeight: 'bold',
   },
@@ -720,132 +772,114 @@ const styles = StyleSheet.create({
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 35,
-    paddingBottom: 6,
+    paddingHorizontal: normalize(20),
+    paddingTop: Platform.OS === 'ios' ? normalize(50) : normalize(35),
+    paddingBottom: normalize(10),
     backgroundColor: '#334155',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    shadowColor: '#667eea',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 6,
+    borderBottomLeftRadius: normalize(20),
+    borderBottomRightRadius: normalize(20),
+    ...crossPlatformShadow(6, '#667eea'),
   },
   backButtonTop: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: normalize(36),
+    height: normalize(36),
+    borderRadius: normalize(18),
     backgroundColor: '#667eea',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#667eea',
-    shadowOpacity: 0.4,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
-    elevation: 5,
+    ...crossPlatformShadow(5, '#667eea'),
   },
   backIconTop: {
-    fontSize: 14,
+    fontSize: normalize(16),
     color: '#f7f7fa',
     fontWeight: 'bold',
   },
   headerTitleDetail: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: 'bold',
+    fontSize: normalize(17),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#f7f7fa',
     textAlign: 'center',
   },
   headerSpacer: {
-    width: 30,
+    width: normalize(36),
   },
   detailsContainer: { 
-    padding: 12,
+    padding: normalize(12),
+    paddingBottom: Platform.OS === 'ios' ? normalize(40) : normalize(30),
   },
   detailCard: {
     backgroundColor: '#2c5364',
-    borderRadius: 24,
+    borderRadius: normalize(24),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#43cea2',
-    shadowColor: '#43cea2',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 10,
-    elevation: 8,
-    marginBottom: 10,
-    marginHorizontal: 4,
+    ...crossPlatformShadow(8, '#43cea2'),
+    marginBottom: normalize(10),
+    marginHorizontal: normalize(4),
   },
   detailHeader: {
-    padding: 16,
+    padding: normalize(16),
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#43cea2',
   },
   detailTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(18),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#667eea',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: normalize(12),
   },
   eventIdText: {
-    fontSize: 14,
+    fontSize: normalize(14),
     color: '#94a3b8',
     textAlign: 'center',
-    marginBottom: 15,
+    marginBottom: normalize(15),
     fontWeight: '600',
     backgroundColor: 'rgba(102,126,234,0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: normalize(12),
+    paddingVertical: normalize(6),
+    borderRadius: normalize(12),
     alignSelf: 'center',
+    overflow: 'hidden',
   },
   timelineSection: {
-    padding: 20,
+    padding: normalize(20),
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   enhancedTimelineSection: {
-    padding: 20,
+    padding: normalize(20),
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    borderRadius: 20,
-    margin: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 4,
+    borderRadius: normalize(20),
+    margin: normalize(12),
+    ...crossPlatformShadow(4),
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(18),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#667eea',
-    marginBottom: 16,
+    marginBottom: normalize(16),
     textAlign: 'center',
   },
   timelineContainer: {
-    paddingLeft: 10,
+    paddingLeft: normalize(10),
   },
   timelineItem: {
     flexDirection: 'row',
-    marginBottom: 4,
+    marginBottom: normalize(4),
   },
   timelineLeft: {
-    width: 30,
+    width: normalize(30),
     alignItems: 'center',
   },
   timelineDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: normalize(14),
+    height: normalize(14),
+    borderRadius: normalize(7),
     borderWidth: 3,
     borderColor: '#f1f5f9',
-    shadowColor: '#667eea',
-    shadowOpacity: 0.4,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 4,
+    ...crossPlatformShadow(4, '#667eea'),
   },
   startDot: {
     backgroundColor: '#43e97b',
@@ -873,7 +907,7 @@ const styles = StyleSheet.create({
   },
   timelineConnector: {
     width: 3,
-    height: 50,
+    height: normalize(50),
     backgroundColor: '#667eea',
     marginTop: 2,
     borderRadius: 2,
@@ -886,70 +920,63 @@ const styles = StyleSheet.create({
   },
   timelineRight: {
     flex: 1,
-    marginLeft: 16,
-    marginBottom: 12,
+    marginLeft: normalize(16),
+    marginBottom: normalize(12),
   },
   checkpointCard: {
     backgroundColor: 'rgba(102,126,234,0.15)',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: normalize(12),
+    padding: normalize(12),
     borderWidth: 1,
     borderColor: 'rgba(102,126,234,0.3)',
-    shadowColor: '#667eea',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
-    elevation: 4,
+    ...crossPlatformShadow(4, '#667eea'),
   },
   enhancedCheckpointCard: {
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: normalize(16),
+    padding: normalize(16),
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.25)',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 6,
-    marginBottom: 8,
+    ...crossPlatformShadow(6),
+    marginBottom: normalize(8),
   },
   checkpointName: {
-    fontSize: 15,
-    fontWeight: 'bold',
+    fontSize: normalize(15),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#2d3748',
-    marginBottom: 4,
+    marginBottom: normalize(4),
   },
   enhancedCheckpointName: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#f7f7fa',
-    marginBottom: 8,
+    marginBottom: normalize(8),
   },
   checkpointDetails: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: normalize(6),
   },
   checkpointTime: {
-    fontSize: 14,
+    fontSize: normalize(14),
     color: '#4a5568',
+    fontWeight: '500',
   },
   enhancedCheckpointTime: {
-    fontSize: 15,
+    fontSize: normalize(15),
     color: '#e0e0e0',
     fontWeight: '600',
   },
   checkpointPoints: {
-    fontSize: 14,
+    fontSize: normalize(14),
     color: '#e0e0e0',
-    fontWeight: 'bold',
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
   },
   enhancedCheckpointPoints: {
-    fontSize: 15,
+    fontSize: normalize(15),
     color: '#e0e0e0',
-    fontWeight: 'bold',
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
   },
   missedCheckpointName: {
     color: '#ff6b6b',
@@ -962,20 +989,16 @@ const styles = StyleSheet.create({
     color: '#ff6b6b',
   },
   performanceSection: {
-    padding: 20,
+    padding: normalize(20),
     paddingTop: 0,
   },
   enhancedPerformanceSection: {
-    padding: 20,
-    paddingTop: 10,
+    padding: normalize(20),
+    paddingTop: normalize(10),
     backgroundColor: '#2c5364',
-    borderRadius: 20,
-    margin: 12,
-    shadowColor: '#43cea2',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 4,
+    borderRadius: normalize(20),
+    margin: normalize(12),
+    ...crossPlatformShadow(4, '#43cea2'),
   },
   statsGrid: {
     flexDirection: 'row',
@@ -984,96 +1007,88 @@ const styles = StyleSheet.create({
   },
   statCard: {
     width: '48%',
-    marginBottom: 16,
-    borderRadius: 16,
+    marginBottom: normalize(16),
+    borderRadius: normalize(16),
     overflow: 'hidden',
     backgroundColor: 'rgba(102,126,234,0.15)',
     borderWidth: 1,
     borderColor: 'rgba(102,126,234,0.3)',
-    shadowColor: '#667eea',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 6,
+    ...crossPlatformShadow(6, '#667eea'),
   },
   statGradient: {
-    padding: 20,
+    padding: normalize(20),
     alignItems: 'center',
-    minHeight: 90,
+    minHeight: normalize(90),
     justifyContent: 'center',
   },
   statIcon: {
-    fontSize: 24,
-    marginBottom: 8,
+    fontSize: normalize(24),
+    marginBottom: normalize(8),
   },
   statLabel: {
-    fontSize: 13,
+    fontSize: normalize(13),
     color: '#cbd5e1',
-    marginBottom: 6,
+    marginBottom: normalize(6),
     textAlign: 'center',
     fontWeight: '600',
   },
   statValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(18),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#f1f5f9',
     textAlign: 'center',
   },
   fullScreenDetailsWrapper: {
     flex: 1,
-    paddingTop: 44,
+    paddingTop: Platform.OS === 'ios' ? normalize(50) : normalize(44),
   },
   professionalTopNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: normalize(20),
+    paddingVertical: normalize(16),
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   elegantBackButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: normalize(40),
+    height: normalize(40),
+    borderRadius: normalize(20),
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: normalize(16),
   },
   elegantBackIcon: {
-    fontSize: 20,
+    fontSize: normalize(20),
     color: '#fff',
     fontWeight: 'bold',
   },
   professionalTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: normalize(18),
     fontWeight: '600',
     color: '#fff',
     textAlign: 'center',
   },
   navSpacer: {
-    width: 56,
+    width: normalize(56),
   },
   scrollViewStyle: {
     flex: 1,
   },
   elegantDetailsContainer: { 
-    padding: 20,
+    padding: normalize(20),
   },
   premiumDetailCard: {
     backgroundColor: '#fff',
-    borderRadius: 24,
+    borderRadius: normalize(24),
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 20,
-    elevation: 10,
+    ...crossPlatformShadow(10),
   },
   eventHeroSection: {
-    padding: 32,
+    padding: normalize(32),
     alignItems: 'center',
     position: 'relative',
   },
@@ -1081,120 +1096,108 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroIcon: {
-    fontSize: 48,
-    marginBottom: 12,
+    fontSize: normalize(48),
+    marginBottom: normalize(12),
   },
   heroTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: normalize(20),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#fff',
     textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 26,
+    marginBottom: normalize(16),
+    lineHeight: normalize(26),
   },
   statusBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: normalize(16),
+    paddingVertical: normalize(8),
+    borderRadius: normalize(20),
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.3)',
   },
   statusText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: normalize(14),
     fontWeight: '600',
   },
   premiumTimelineSection: {
-    padding: 24,
+    padding: normalize(24),
   },
   premiumPerformanceSection: {
-    padding: 24,
+    padding: normalize(24),
     paddingTop: 0,
   },
   premiumSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    paddingBottom: 16,
+    marginBottom: normalize(24),
+    paddingBottom: normalize(16),
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
   premiumIconBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: normalize(48),
+    height: normalize(48),
+    borderRadius: normalize(24),
     backgroundColor: '#185a9d',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
-    shadowColor: '#43cea2',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 6,
+    marginRight: normalize(16),
+    ...crossPlatformShadow(6, '#43cea2'),
   },
   premiumSectionIcon: {
-    fontSize: 22,
+    fontSize: normalize(22),
   },
   sectionTitleContainer: {
     flex: 1,
   },
   premiumSectionTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: normalize(22),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#1a202c',
-    marginBottom: 4,
+    marginBottom: normalize(4),
   },
   sectionSubtitle: {
-    fontSize: 14,
+    fontSize: normalize(14),
     color: '#64748b',
     fontWeight: '500',
   },
   elegantTimelineContainer: {
-    paddingLeft: 8,
+    paddingLeft: normalize(8),
   },
   elegantTimelineItem: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: normalize(16),
     alignItems: 'flex-start',
   },
   timelineIndicator: {
-    width: 32,
+    width: normalize(32),
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: normalize(16),
   },
   elegantTimelineDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: normalize(16),
+    height: normalize(16),
+    borderRadius: normalize(8),
     borderWidth: 3,
     borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 4,
+    ...crossPlatformShadow(4),
   },
   elegantTimelineConnector: {
     width: 2,
-    height: 40,
+    height: normalize(40),
     backgroundColor: '#e2e8f0',
-    marginTop: 4,
+    marginTop: normalize(4),
     borderRadius: 1,
   },
   timelineContent: {
     flex: 1,
-    marginBottom: 8,
+    marginBottom: normalize(8),
   },
   premiumCheckpointCard: {
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: normalize(16),
+    padding: normalize(16),
+    ...crossPlatformShadow(3),
   },
   checkpointHeader: {
     flexDirection: 'row',
@@ -1202,8 +1205,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   premiumCheckpointName: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: normalize(16),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#2d3748',
     flex: 1,
   },
@@ -1211,16 +1214,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.8)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: normalize(8),
+    paddingVertical: normalize(4),
+    borderRadius: normalize(12),
   },
   chipIcon: {
-    fontSize: 12,
-    marginRight: 4,
+    fontSize: normalize(12),
+    marginRight: normalize(4),
   },
   premiumCheckpointTime: {
-    fontSize: 13,
+    fontSize: normalize(13),
     color: '#4a5568',
     fontWeight: '600',
   },
@@ -1231,243 +1234,251 @@ const styles = StyleSheet.create({
   },
   premiumStatCard: {
     width: '48%',
-    marginBottom: 16,
-    borderRadius: 18,
+    marginBottom: normalize(16),
+    borderRadius: normalize(18),
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 6,
+    ...crossPlatformShadow(6),
   },
   premiumStatGradient: {
-    padding: 20,
+    padding: normalize(20),
     alignItems: 'center',
-    minHeight: 100,
+    minHeight: normalize(100),
     justifyContent: 'center',
   },
   statIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: normalize(40),
+    height: normalize(40),
+    borderRadius: normalize(20),
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: normalize(12),
   },
   premiumStatIcon: {
-    fontSize: 20,
+    fontSize: normalize(20),
   },
   premiumStatLabel: {
-    fontSize: 13,
+    fontSize: normalize(13),
     color: 'rgba(255,255,255,0.9)',
-    marginBottom: 6,
+    marginBottom: normalize(6),
     textAlign: 'center',
     fontWeight: '500',
   },
   premiumStatValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(18),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#fff',
     textAlign: 'center',
   },
   missedSummaryCard: {
-    width: width * 0.92,
-    backgroundColor: 'rgba(15,15,20,0.95)',
-    borderRadius: 24,
-    padding: 20,
-    marginTop: 18,
-    marginBottom: 16,
+    width: '100%',
+    borderRadius: normalize(16),
+    marginTop: normalize(14),
+    marginBottom: normalize(14),
     alignSelf: 'center',
-    shadowColor: '#ff7675',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 8,
+    ...crossPlatformShadow(8, '#ff7675'),
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.3)',
+    overflow: 'hidden',
   },
   missedSummaryGradient: {
-    padding: 16,
+    padding: normalize(14),
+    paddingHorizontal: normalize(16),
+    borderRadius: normalize(14),
   },
   missedSummaryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(15),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#dc2626',
-    marginBottom: 8,
+    marginBottom: normalize(6),
     textAlign: 'center',
   },
   missedSummaryText: {
-    fontSize: 15,
+    fontSize: normalize(13),
     color: '#374151',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: normalize(10),
     fontWeight: '600',
   },
   missedPointsContainer: {
-    marginBottom: 12,
+    marginBottom: normalize(10),
   },
   missedPointItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: normalize(6),
+    paddingHorizontal: normalize(8),
     backgroundColor: 'rgba(255,255,255,0.7)',
-    marginBottom: 4,
-    borderRadius: 8,
+    marginBottom: normalize(3),
+    borderRadius: normalize(6),
     borderWidth: 1,
     borderColor: 'rgba(220, 38, 38, 0.2)',
   },
   missedPointName: {
-    fontSize: 14,
+    fontSize: normalize(12),
     color: '#374151',
     flex: 1,
     fontWeight: '600',
+    marginRight: normalize(4),
   },
   missedPointValue: {
-    fontSize: 14,
+    fontSize: normalize(11),
     color: '#dc2626',
-    fontWeight: 'bold',
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
+    flexShrink: 0,
+    paddingRight: normalize(2),
   },
   totalMissedPoints: {
-    fontSize: 16,
+    fontSize: normalize(13),
     color: '#dc2626',
-    fontWeight: 'bold',
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     textAlign: 'center',
     backgroundColor: 'rgba(255,255,255,0.8)',
-    padding: 10,
-    borderRadius: 10,
+    padding: normalize(8),
+    borderRadius: normalize(8),
     borderWidth: 1,
     borderColor: 'rgba(220, 38, 38, 0.3)',
+    overflow: 'hidden',
   },
   earnedSummaryCard: {
-    width: width * 0.92,
-    backgroundColor: 'rgba(15,15,20,0.95)',
-    borderRadius: 24,
-    padding: 20,
-    marginTop: 18,
-    marginBottom: 16,
+    width: '100%',
+    borderRadius: normalize(16),
+    marginTop: normalize(14),
+    marginBottom: normalize(14),
     alignSelf: 'center',
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 8,
+    ...crossPlatformShadow(8, '#43cea2'),
     borderWidth: 1,
     borderColor: 'rgba(67, 206, 162, 0.3)',
+    overflow: 'hidden',
+  },
+  summaryGradientBg: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: normalize(16),
+  },
+  summaryContent: {
+    padding: normalize(14),
   },
   earnedSummaryGradient: {
-    padding: 16,
+    padding: normalize(14),
+    paddingHorizontal: normalize(16),
+    borderRadius: normalize(14),
   },
   earnedSummaryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(15),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#059669',
-    marginBottom: 8,
+    marginBottom: normalize(6),
     textAlign: 'center',
   },
   earnedSummaryText: {
-    fontSize: 15,
+    fontSize: normalize(13),
     color: '#374151',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: normalize(10),
     fontWeight: '600',
   },
   earnedPointsContainer: {
-    marginBottom: 12,
+    marginBottom: normalize(10),
   },
   earnedPointItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: normalize(6),
+    paddingHorizontal: normalize(8),
     backgroundColor: 'rgba(255,255,255,0.7)',
-    marginBottom: 4,
-    borderRadius: 8,
+    marginBottom: normalize(3),
+    borderRadius: normalize(6),
     borderWidth: 1,
     borderColor: 'rgba(5, 150, 105, 0.2)',
   },
   earnedPointName: {
-    fontSize: 14,
+    fontSize: normalize(12),
     color: '#374151',
     flex: 1,
     fontWeight: '600',
+    marginRight: normalize(4),
   },
   earnedPointTime: {
-    fontSize: 13,
+    fontSize: normalize(10),
     color: '#6B7280',
-    marginRight: 8,
+    marginRight: normalize(4),
     fontWeight: '500',
+    flexShrink: 1,
   },
   earnedPointValue: {
-    fontSize: 14,
+    fontSize: normalize(11),
     color: '#059669',
-    fontWeight: 'bold',
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
+    flexShrink: 0,
+    paddingRight: normalize(2),
   },
   totalEarnedPoints: {
-    fontSize: 16,
+    fontSize: normalize(13),
     color: '#059669',
-    fontWeight: 'bold',
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     textAlign: 'center',
     backgroundColor: 'rgba(255,255,255,0.8)',
-    padding: 10,
-    borderRadius: 10,
+    padding: normalize(8),
+    borderRadius: normalize(8),
     borderWidth: 1,
     borderColor: 'rgba(5, 150, 105, 0.3)',
+    overflow: 'hidden',
   },
   noParticipationBanner: {
     backgroundColor: 'rgba(148, 163, 184, 0.15)',
-    borderRadius: 16,
-    padding: 20,
-    marginTop: 15,
+    borderRadius: normalize(16),
+    padding: normalize(20),
+    marginTop: normalize(15),
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.3)',
   },
   noParticipationIcon: {
-    fontSize: 48,
-    marginBottom: 12,
+    fontSize: normalize(48),
+    marginBottom: normalize(12),
   },
   noParticipationTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(18),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#64748b',
-    marginBottom: 8,
+    marginBottom: normalize(8),
     textAlign: 'center',
   },
   noParticipationText: {
-    fontSize: 15,
+    fontSize: normalize(15),
     color: '#94a3b8',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: normalize(22),
+    fontWeight: '500',
   },
   errorBanner: {
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderRadius: 16,
-    padding: 20,
-    marginTop: 15,
+    borderRadius: normalize(16),
+    padding: normalize(20),
+    marginTop: normalize(15),
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   errorIcon: {
-    fontSize: 48,
-    marginBottom: 12,
+    fontSize: normalize(48),
+    marginBottom: normalize(12),
   },
   errorTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: normalize(18),
+    fontWeight: Platform.OS === 'ios' ? '700' : 'bold',
     color: '#d97706',
-    marginBottom: 8,
+    marginBottom: normalize(8),
     textAlign: 'center',
   },
   errorText: {
-    fontSize: 15,
+    fontSize: normalize(15),
     color: '#f59e0b',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: normalize(22),
+    fontWeight: '500',
   },
 });
 

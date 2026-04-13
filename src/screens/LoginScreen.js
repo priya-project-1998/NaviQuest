@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from "react-native";
-import CheckBox from "@react-native-community/checkbox";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Dimensions, Platform, KeyboardAvoidingView } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
-import Icon from "react-native-vector-icons/Feather";
 import AuthService from "../services/apiService/auth_service";
 import ProfileService from "../services/apiService/profile_service";
 import ProfileStorage from "../utils/ProfileStorage";
+
+const { width, height } = Dimensions.get("window");
 
 export default function LoginScreen({ navigation }) {
   const [username, setUsername] = useState("");
@@ -54,7 +54,7 @@ export default function LoginScreen({ navigation }) {
 
   const renderInput = (icon, placeholder, value, setValue, keyboard, secure, showToggle) => (
     <View style={styles.inputContainer}>
-      <Icon name={icon} size={20} color="#ccc" style={styles.icon} />
+      <Text style={styles.iconText}>{icon}</Text>
       <TextInput
         style={styles.input}
         placeholder={placeholder}
@@ -66,7 +66,7 @@ export default function LoginScreen({ navigation }) {
       />
       {showToggle && (
         <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-          <Icon name={showPassword ? "eye" : "eye-off"} size={20} color="#ccc" />
+          <Text style={styles.iconText}>{showPassword ? "👁️" : "👁️‍🗨️"}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -74,56 +74,153 @@ export default function LoginScreen({ navigation }) {
 
   return (
     <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.gradient}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={styles.card}>
-          <Text style={styles.title}>Login</Text>
-          {renderInput("user", "Username", username, setUsername, "default", false)}
-          {renderInput("lock", "Password", password, setPassword, "default", true, true)}
+            <Text style={styles.title}>Login</Text>
+            {renderInput("👤", "Username", username, setUsername, "default", false)}
+            {renderInput("🔒", "Password", password, setPassword, "default", true, true)}
 
-          <View style={styles.rememberContainer}>
-            <CheckBox value={rememberMe} onValueChange={setRememberMe} />
-            <Text style={styles.rememberText}>Remember Me</Text>
+            <TouchableOpacity 
+              style={styles.rememberContainer}
+              onPress={() => setRememberMe(!rememberMe)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkboxBox, rememberMe && styles.checkboxBoxChecked]}>
+                {rememberMe && <Text style={styles.checkboxEmoji}>✓</Text>}
+              </View>
+              <Text style={styles.rememberText}>Remember Me</Text>
+            </TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.8} onPress={handleLogin} disabled={loading} style={styles.buttonWrapper}>
+              <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.button}>
+                <Text style={styles.buttonText}>{loading ? "Logging in..." : "Log In"}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate("ForgetPassword")}>
+              <Text style={[styles.link, { color: "#36D1DC" }]}>Reset Password</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate("Signup")}>
+              <Text style={[styles.link, { color: "#36D1DC" }]}>Don't have an account? Sign up</Text>
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity activeOpacity={0.8} onPress={handleLogin} disabled={loading}>
-            <LinearGradient colors={["#36D1DC", "#5B86E5"]} style={styles.button}>
-              <Text style={styles.buttonText}>{loading ? "Logging in..." : "Log In"}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => navigation.navigate("ForgetPassword")}>
-            <Text style={[styles.link, { color: "#36D1DC" }]}>Reset Password</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => navigation.navigate("Signup")}>
-            <Text style={[styles.link, { color: "#36D1DC" }]}>Don't have an account? Sign up</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </LinearGradient>
-  );
-}
+        </KeyboardAvoidingView>
+      </LinearGradient>
+    );
+  }
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  container: { flexGrow: 1, justifyContent: "center", padding: 20 },
-  card: { backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 20, padding: 20 },
-  title: { fontSize: 28, fontWeight: "bold", color: "#fff", textAlign: "center", marginBottom: 15 },
-  inputContainer: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 10, marginVertical: 8, paddingHorizontal: 10, paddingVertical: 12 },
-  icon: { marginRight: 10 },
-  input: { flex: 1, color: "#fff", fontSize: 16 },
-  rememberContainer: { flexDirection: "row", alignItems: "center", marginTop: 10 },
-  rememberText: { color: "#fff", marginLeft: 5 },
-  button: {
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 15,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+  gradient: { 
+    flex: 1 
   },
-  buttonText: { color: "#fff", fontWeight: "bold", fontSize: 18, textAlign: "center" },
-  link: { textAlign: "center", marginTop: 15, fontSize: 16 },
+  container: { 
+    flex: 1, 
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: width > 600 ? 40 : 20,
+    paddingVertical: width > 600 ? 50 : 40,
+  },
+  card: { 
+    backgroundColor: "rgba(255,255,255,0.1)", 
+    borderRadius: width > 600 ? 30 : 20, 
+    padding: width > 600 ? 40 : 20,
+    width: "100%",
+    maxWidth: 500,
+    alignSelf: "center",
+  },
+  title: { 
+    fontSize: width > 600 ? 32 : 28, 
+    fontWeight: "bold", 
+    color: "#fff", 
+    textAlign: "center", 
+    marginBottom: width > 600 ? 25 : 15,
+  },
+  inputContainer: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    backgroundColor: "rgba(255,255,255,0.15)", 
+    borderRadius: width > 600 ? 15 : 10, 
+    marginVertical: width > 600 ? 12 : 8, 
+    paddingHorizontal: width > 600 ? 15 : 10, 
+    paddingVertical: width > 600 ? 16 : 12,
+  },
+  icon: { 
+    marginRight: 10,
+  },
+  iconText: {
+    fontSize: width > 600 ? 24 : 20,
+    marginRight: 8,
+  },
+  input: { 
+    flex: 1, 
+    color: "#fff", 
+    fontSize: width > 600 ? 18 : 16,
+    paddingVertical: Platform.OS === "ios" ? 8 : 0,
+  },
+  rememberContainer: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    marginTop: width > 600 ? 18 : 12,
+    marginBottom: width > 600 ? 15 : 10,
+    paddingVertical: width > 600 ? 8 : 6,
+  },
+  checkboxEmoji: {
+    fontSize: width > 600 ? 14 : 12,
+    color: "#fff",
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  checkboxBox: {
+    width: width > 600 ? 20 : 16,
+    height: width > 600 ? 20 : 16,
+    borderRadius: width > 600 ? 10 : 8,
+    borderWidth: 2,
+    borderColor: "#36D1DC",
+    marginRight: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  checkboxBoxChecked: {
+    backgroundColor: "#36D1DC",
+  },
+  rememberTouchable: {
+    flex: 1,
+  },
+  rememberText: { 
+    color: "#fff", 
+    marginLeft: 0,
+    fontSize: width > 600 ? 16 : 14,
+  },
+  button: {
+    flex: 1,                    // 🔥 THIS IS THE KEY
+    borderRadius: width > 600 ? 16 : 12,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#36D1DC",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  buttonText: { 
+    color: "#fff", 
+    fontWeight: "700", 
+    fontSize: width > 600 ? 18 : 16, 
+    textAlign: "center",
+    letterSpacing: 0.8,
+  },
+  link: { 
+    textAlign: "center", 
+    marginTop: width > 600 ? 20 : 15, 
+    fontSize: width > 600 ? 18 : 16,
+    color: "#36D1DC",
+  },
+  buttonWrapper: {
+  minHeight: width > 600 ? 56 : 48,
+  borderRadius: width > 600 ? 16 : 12,
+  marginTop: width > 600 ? 28 : 20,
+  marginBottom: width > 600 ? 20 : 15,
+},
+
 });
