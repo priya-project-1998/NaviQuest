@@ -1054,12 +1054,24 @@ const syncPendingCheckpoints = async () => {
       if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
         try {
           isProgrammaticMove.current = true;
-          mapRef.current.animateToRegion({
-            latitude: smoothedLocation.latitude,
-            longitude: smoothedLocation.longitude,
-            latitudeDelta: userManualZoomRef.current.latitudeDelta,
-            longitudeDelta: userManualZoomRef.current.longitudeDelta,
-          }, 400);
+          if (Platform.OS === 'ios') {
+            // ✅ iOS: use animateCamera with zoom from ref — animateToRegion doesn't honor delta for zoom
+            mapRef.current.animateCamera({
+              center: {
+                latitude: smoothedLocation.latitude,
+                longitude: smoothedLocation.longitude,
+              },
+              zoom: currentZoomLevelRef.current,
+            }, { duration: 400 });
+          } else {
+            // ✅ Android: existing animateToRegion untouched
+            mapRef.current.animateToRegion({
+              latitude: smoothedLocation.latitude,
+              longitude: smoothedLocation.longitude,
+              latitudeDelta: userManualZoomRef.current.latitudeDelta,
+              longitudeDelta: userManualZoomRef.current.longitudeDelta,
+            }, 400);
+          }
         } catch (error) {
           isProgrammaticMove.current = false;
           console.log('Error auto-following:', error);
@@ -1223,12 +1235,24 @@ const syncPendingCheckpoints = async () => {
           if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
             try {
               isProgrammaticMove.current = true;
-              mapRef.current.animateToRegion({
-                latitude: smoothedLocation.latitude,
-                longitude: smoothedLocation.longitude,
-                latitudeDelta: userManualZoomRef.current.latitudeDelta,
-                longitudeDelta: userManualZoomRef.current.longitudeDelta,
-              }, 400);
+              if (Platform.OS === 'ios') {
+                // ✅ iOS: use animateCamera with zoom from ref
+                mapRef.current.animateCamera({
+                  center: {
+                    latitude: smoothedLocation.latitude,
+                    longitude: smoothedLocation.longitude,
+                  },
+                  zoom: currentZoomLevelRef.current,
+                }, { duration: 400 });
+              } else {
+                // ✅ Android: existing animateToRegion untouched
+                mapRef.current.animateToRegion({
+                  latitude: smoothedLocation.latitude,
+                  longitude: smoothedLocation.longitude,
+                  latitudeDelta: userManualZoomRef.current.latitudeDelta,
+                  longitudeDelta: userManualZoomRef.current.longitudeDelta,
+                }, 400);
+              }
             } catch (error) {
               isProgrammaticMove.current = false;
               console.log('Error auto-following in watchPosition:', error);
@@ -1998,9 +2022,22 @@ const syncPendingCheckpoints = async () => {
                 longitude: parseFloat(cp.longitude),
               }}
               title={cp.checkpoint_name}
-              pinColor={markerColor}
+              // ✅ Android: pinColor works with hex values — keep existing behavior
+              // iOS: pinColor only supports a few named colors → hex falls back to default red/brown.
+              // Use a custom child View on iOS so colors are consistent with Android.
+              {...(Platform.OS === 'android' ? { pinColor: markerColor } : {})}
+              anchor={Platform.OS === 'ios' ? { x: 0.5, y: 1 } : undefined}
               onPress={() => setSelectedCheckpointId(cp.checkpoint_id)}
-            />
+            >
+              {Platform.OS === 'ios' && (
+                <View style={styles.customPinWrapper}>
+                  <View style={[styles.customPinHead, { backgroundColor: markerColor }]}>
+                    <View style={styles.customPinInnerDot} />
+                  </View>
+                  <View style={[styles.customPinTail, { borderTopColor: markerColor }]} />
+                </View>
+              )}
+            </Marker>
           );
         })}
       </MapView>
@@ -2157,32 +2194,48 @@ const syncPendingCheckpoints = async () => {
               isProgrammaticMove.current = true;
               isUserTouchingMap.current = false;
               isPanGestureRef.current = false;
-              // ✅ Recenter: street-level zoom (0.005 delta = ~zoom 17)
-              // animateToRegion use karo — zoom field reliable hai (animateCamera Google Maps pe zoom ignore karta hai)
-              currentZoomLevelRef.current = 17;
-              userManualZoomRef.current = { latitudeDelta: 0.005, longitudeDelta: 0.005 };
-              mapRef.current.animateToRegion({
-                latitude: lastUserLocation.latitude,
-                longitude: lastUserLocation.longitude,
-                latitudeDelta: 0.005,
-                longitudeDelta: 0.005,
-              }, 600);
-              
+              // ✅ Recenter: max street-level zoom (~zoom 20 = ~0.0006 delta)
+              currentZoomLevelRef.current = 20;
+              userManualZoomRef.current = { latitudeDelta: 0.0006, longitudeDelta: 0.0006 };
+              if (Platform.OS === 'ios') {
+                // ✅ iOS: animateToRegion ignores latitudeDelta for zoom — use animateCamera with explicit zoom
+                mapRef.current.animateCamera({
+                  center: {
+                    latitude: lastUserLocation.latitude,
+                    longitude: lastUserLocation.longitude,
+                  },
+                  zoom: 20,
+                  heading: userHeading,
+                  pitch: 0,
+                }, { duration: 600 });
+              } else {
+                // ✅ Android: existing animateToRegion works perfectly — untouched
+                mapRef.current.animateToRegion({
+                  latitude: lastUserLocation.latitude,
+                  longitude: lastUserLocation.longitude,
+                  latitudeDelta: 0.0006,
+                  longitudeDelta: 0.0006,
+                }, 600);
+              }
+
               setUserCurrentRegion({
                 latitude: lastUserLocation.latitude,
                 longitude: lastUserLocation.longitude,
-                latitudeDelta: 0.005,
-                longitudeDelta: 0.005,
+                latitudeDelta: 0.0006,
+                longitudeDelta: 0.0006,
               });
               
               // ✅ Always enable auto-follow when recenter is pressed
-              if (!isFollowingUser) {
+              const wasAlreadyFollowing = isFollowingUser;
+              if (!wasAlreadyFollowing) {
                 startFollowingUserLocation();
               }
               isFollowingUserRef.current = true;
               setIsFollowingUser(true);
-              
-              showCenterToast('Following your location', 'success');
+              // ✅ Only show toast on first enable — avoid spam on repeated recenter taps
+              if (!wasAlreadyFollowing) {
+                showCenterToast('Following your location', 'info');
+              }
             } catch (error) {
               isProgrammaticMove.current = false;
               console.log('Error centering map:', error);
@@ -3115,6 +3168,42 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginTop: 1,
+  },
+  // ✅ iOS custom checkpoint pin (mimics Google-style teardrop) — hex color works reliably
+  customPinWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 30,
+    height: 40,
+  },
+  customPinHead: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 2,
+  },
+  customPinInnerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+  },
+  customPinTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    marginTop: -2,
   },
 });
 

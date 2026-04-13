@@ -15,8 +15,13 @@ import {
   SafeAreaView,
   PixelRatio,
   Platform,
-  Modal
+  Modal,
+  InputAccessoryView,
+  Keyboard,
 } from "react-native";
+
+// ✅ iOS-only: ID for the "Done" toolbar attached to phone-pad keyboard (no Return key by default)
+const PHONE_INPUT_ACCESSORY_ID = 'crewMemberPhonePadDone';
 import { Picker } from '@react-native-picker/picker';
 import LinearGradient from "react-native-linear-gradient";
 import { useFocusEffect } from "@react-navigation/native";
@@ -540,6 +545,8 @@ const JoinEventForm = ({ event, onClose }) => {
                     keyboardType="phone-pad"
                     placeholder="Enter mobile number"
                     placeholderTextColor="rgba(255,255,255,0.5)"
+                    // ✅ iOS: phone-pad keyboard has no Return key — attach a Done toolbar so user can dismiss
+                    inputAccessoryViewID={Platform.OS === 'ios' ? PHONE_INPUT_ACCESSORY_ID : undefined}
                   />
                 </View>
 
@@ -583,6 +590,20 @@ const JoinEventForm = ({ event, onClose }) => {
           </View>
         </TouchableOpacity>
       </View>
+
+      {/* ✅ iOS-only: Done toolbar above phone-pad keyboard so users can dismiss it after typing mobile number */}
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={PHONE_INPUT_ACCESSORY_ID}>
+          <View style={styles.keyboardAccessoryBar}>
+            <TouchableOpacity
+              onPress={() => Keyboard.dismiss()}
+              style={styles.keyboardAccessoryDoneBtn}
+            >
+              <Text style={styles.keyboardAccessoryDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
     </ScrollView>
   );
 };
@@ -910,6 +931,28 @@ const OrganiserScreen = ({ navigation, route }) => {
 };
 
 const styles = StyleSheet.create({
+  // ✅ iOS phone-pad Done toolbar
+  keyboardAccessoryBar: {
+    backgroundColor: '#1c2b36',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  keyboardAccessoryDoneBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#36D1DC',
+  },
+  keyboardAccessoryDoneText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: '#0f2027',
