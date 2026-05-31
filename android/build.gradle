@@ -6,6 +6,12 @@ buildscript {
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.1.20"
+        // Pin play-services-location so react-native-geolocation-service compiles against the
+        // SAME version that react-native-maps pulls in at runtime (21.3.0). Without this the
+        // service compiles against its default 18.0.0 where `SettingsClient` is a CLASS, but
+        // runs against 21.x where it's an INTERFACE → IncompatibleClassChangeError crash on
+        // opening the map (RNFusedLocation.checkLocationSettings).
+        playServicesLocationVersion = "21.3.0"
     }
     repositories {
         google()

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
   Modal,
   InputAccessoryView,
   Keyboard,
+  KeyboardAvoidingView,
 } from "react-native";
 
 // ✅ iOS-only: ID for the "Done" toolbar attached to phone-pad keyboard (no Return key by default)
@@ -167,6 +168,10 @@ const JoinEventForm = ({ event, onClose }) => {
   const [classes, setClasses] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [classesLoading, setClassesLoading] = useState(false);
+  // ✅ iOS phone-pad has no Return/Next key — keep refs to each member's Email input so the
+  // toolbar "Next" button can jump there from the mobile field.
+  const emailInputRefs = useRef({});
+  const focusedMemberIndexRef = useRef(0);
 
   // Load categories when component mounts
   useEffect(() => {
@@ -409,7 +414,18 @@ const JoinEventForm = ({ event, onClose }) => {
   };
 
   return (
-    <ScrollView style={styles.joinFormContainer}>
+    <KeyboardAvoidingView
+      style={styles.joinFormContainer}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
+    <ScrollView
+      style={styles.joinFormContainer}
+      contentContainerStyle={styles.joinFormScrollContent}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.joinFormContent}>
         {/* Header */}
         <View style={styles.joinFormHeader}>
@@ -545,20 +561,27 @@ const JoinEventForm = ({ event, onClose }) => {
                     keyboardType="phone-pad"
                     placeholder="Enter mobile number"
                     placeholderTextColor="rgba(255,255,255,0.5)"
-                    // ✅ iOS: phone-pad keyboard has no Return key — attach a Done toolbar so user can dismiss
+                    // ✅ iOS: phone-pad keyboard has no Return/Next key — attach a toolbar with
+                    // "Next" (jumps to this member's Email) and "Done" (dismiss)
                     inputAccessoryViewID={Platform.OS === 'ios' ? PHONE_INPUT_ACCESSORY_ID : undefined}
+                    onFocus={() => { focusedMemberIndexRef.current = index; }}
                   />
                 </View>
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Email Address</Text>
                   <TextInput
+                    ref={(ref) => { emailInputRefs.current[index] = ref; }}
                     style={styles.input}
                     value={member.email}
                     onChangeText={(text) => updateCrewMember(index, 'email', text)}
                     keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
                     placeholder="Enter email address"
                     placeholderTextColor="rgba(255,255,255,0.5)"
+                    onSubmitEditing={() => Keyboard.dismiss()}
                   />
                 </View>
               </View>
@@ -591,10 +614,26 @@ const JoinEventForm = ({ event, onClose }) => {
         </TouchableOpacity>
       </View>
 
-      {/* ✅ iOS-only: Done toolbar above phone-pad keyboard so users can dismiss it after typing mobile number */}
+    </ScrollView>
+      {/* ✅ iOS-only: phone-pad has no Next/Return key. Toolbar gives "Next" (focus this
+          member's Email field) and "Done" (dismiss keyboard). */}
       {Platform.OS === 'ios' && (
         <InputAccessoryView nativeID={PHONE_INPUT_ACCESSORY_ID}>
           <View style={styles.keyboardAccessoryBar}>
+            <TouchableOpacity
+              onPress={() => {
+                const idx = focusedMemberIndexRef.current;
+                const emailRef = emailInputRefs.current[idx];
+                if (emailRef && typeof emailRef.focus === 'function') {
+                  emailRef.focus();
+                } else {
+                  Keyboard.dismiss();
+                }
+              }}
+              style={styles.keyboardAccessoryDoneBtn}
+            >
+              <Text style={styles.keyboardAccessoryDoneText}>Next →</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => Keyboard.dismiss()}
               style={styles.keyboardAccessoryDoneBtn}
@@ -604,7 +643,7 @@ const JoinEventForm = ({ event, onClose }) => {
           </View>
         </InputAccessoryView>
       )}
-    </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -947,6 +986,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 6,
     backgroundColor: '#36D1DC',
+    marginLeft: 8,
   },
   keyboardAccessoryDoneText: {
     color: '#fff',
@@ -1436,6 +1476,10 @@ const styles = StyleSheet.create({
   joinFormContent: {
     padding: normalize(16),
     paddingBottom: Platform.OS === 'ios' ? normalize(40) : normalize(30),
+  },
+  // ✅ Extra bottom space so the last field (Email) can scroll above the keyboard
+  joinFormScrollContent: {
+    paddingBottom: Platform.OS === 'ios' ? normalize(120) : normalize(80),
   },
   joinFormHeader: {
     alignItems: 'center',
