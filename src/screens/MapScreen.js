@@ -2,9 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from "react";
 import { View, TouchableOpacity, Text, PermissionsAndroid, Platform, Alert, BackHandler, Linking, Animated, AppState } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { PROVIDER_GOOGLE } from "react-native-maps";
-// `react-native-geolocation-service` is used (not @react-native-community/geolocation) because
-// it routes through Google Play Services' FusedLocationProviderClient on Android, which gives
-// far better accuracy and update frequency for vehicle/motion tracking.
+// Uses react-native-geolocation-service (explicit iOS auth + Android FusedLocation).
 import Geolocation from "react-native-geolocation-service";
 import NetInfo from "@react-native-community/netinfo";
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,10 +35,7 @@ const MapScreen = ({ route, navigation }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [userRoute, setUserRoute] = useState([]); // Track user route - real user movement path
   const [checkpointStatus, setCheckpointStatus] = useState({}); // { checkpoint_id: { time, completed } }
-  // Live mirror of checkpointStatus. The GPS watchPosition callback is created ONCE on mount,
-  // so any `checkpointStatus` (state) it reads is frozen at the mount value ({}). Reading this
-  // ref instead gives the CURRENT status — exactly how MapSimulationScreen does it — so the
-  // START gate actually opens and duplicate detection works. Kept in sync by the effect below.
+  // Live mirror of checkpointStatus — the once-created GPS watch reads this ref, not stale state.
   const checkpointStatusRef = useRef({});
   const [eventCompletedModal, setEventCompletedModal] = useState(false);
   const [userHeading, setUserHeading] = useState(0); // Track user direction for car rotation - starts north
@@ -57,9 +52,7 @@ const MapScreen = ({ route, navigation }) => {
   const isUserTouchingMap = useRef(false);
   const isPanGestureRef = useRef(false);
   const [speedLimit, setSpeedLimit] = useState(60); // Default speed limit
-  // Live mirror of speedLimit. The speed limit arrives from the API (route param speed_limit)
-  // AFTER mount, but the GPS watchPosition closure froze the mount-time value (60). Reading
-  // this ref inside checkSpeedLimit makes overspeed use the REAL API limit (e.g. 40), not 60.
+  // Live mirror of speedLimit (API value arrives after mount) so the GPS watch uses the real limit.
   const speedLimitRef = useRef(60);
   const [isOverspeedAlertShown, setIsOverspeedAlertShown] = useState(false);
   const isOverspeedAlertShownRef = useRef(false);
@@ -108,7 +101,6 @@ const MapScreen = ({ route, navigation }) => {
       eventEndTimestamp.current = eventEndTimestamp.current + (timeTakenSec * 1000);
     }
   } catch (e) {
-    console.log("Error adding START time:", e);
   }
 };
 
@@ -126,10 +118,6 @@ const MapScreen = ({ route, navigation }) => {
       return 0;
     };
     // ✅ Real-time timer that survives background / app-kill.
-    // We persist the ABSOLUTE end timestamp once when the event first starts. On a
-    // restart we reuse it, so remaining = endTs - now → the time that elapsed while
-    // the app was backgrounded is correctly gone (50:55 → 40:55 after 10 min away),
-    // instead of the old behavior that reset the countdown to the full duration.
     (async () => {
       const totalSeconds = parseDurationToSeconds(duration);
       const key = event_id ? `event_${event_id}_end_ts` : null;
@@ -167,8 +155,7 @@ const MapScreen = ({ route, navigation }) => {
     createTables();
   }, []);
 
-  // Keep the live ref in lockstep with checkpointStatus state so the mount-time
-  // watchPosition closure always reads the CURRENT checkpoint status (START gate + dedup).
+  // Keep checkpointStatusRef in lockstep with state for the mount-time watch closure.
   useEffect(() => {
     checkpointStatusRef.current = checkpointStatus;
   }, [checkpointStatus]);
@@ -214,7 +201,6 @@ const MapScreen = ({ route, navigation }) => {
         const endTime = new Date(event_end_date);
         setEventEndTime(endTime);
       } catch (error) {
-        console.log('Error parsing event end date:', error);
       }
     }
   }, [event_end_date, eventEndTime]);
@@ -297,7 +283,6 @@ const syncPendingCheckpoints = async () => {
         try {
           data = await res.json();
         } catch (jsonErr) {
-          console.log("❌ JSON parse error:", jsonErr);
         }
         
         if (data && data.status === "success") {
@@ -312,8 +297,7 @@ const syncPendingCheckpoints = async () => {
               setMarkerColors((prev) => ({ ...prev, [item.checkpoint_id]: '#185a9d' }));
             }
             const reachedTime = item.time_stamp || new Date().toLocaleTimeString();
-            // Keep the live ref in step too (so the START gate opens immediately when START
-            // syncs via the offline queue), mirroring the in-proximity collect path.
+            // Sync the ref too so the START gate opens immediately on offline-queue sync.
             if (!checkpointStatusRef.current[item.checkpoint_id]?.completed) {
               checkpointStatusRef.current = {
                 ...checkpointStatusRef.current,
@@ -350,7 +334,6 @@ const syncPendingCheckpoints = async () => {
           failCount++;
         }
       } catch (err) {
-        console.log("❌ Sync failed for checkpoint:", item.checkpoint_id, err);
         failCount++;
       }
     }
@@ -362,14 +345,10 @@ const syncPendingCheckpoints = async () => {
       showCenterToast(`⚠️ Failed to sync ${failCount} checkpoint(s) — will retry`, 'warning');
     }
   } catch (err) {
-    console.error('❌ Error in syncPendingCheckpoints:', err);
   }
 };
 
-  // Persist the running overspeed count so it survives background / app-kill. The count
-  // accumulates BETWEEN checkpoints and is only zeroed after a checkpoint captures + saves
-  // it — so if the app is killed mid-segment, this keeps the count intact so the NEXT
-  // checkpoint still sends the correct over_speed to the server.
+  // Persist the running overspeed count so it survives background/app-kill.
   const persistOverspeedCount = (count) => {
     if (!event_id) return;
     AsyncStorage.setItem(`event_${event_id}_overspeed`, String(count)).catch(() => {});
@@ -410,10 +389,7 @@ const syncPendingCheckpoints = async () => {
     if (rawSpeed > activeSpeedLimit) {
       if (!isCurrentlyOverspeedRef.current) {
         isCurrentlyOverspeedRef.current = true;
-        // +1 ONLY the first time we cross the limit in THIS segment. lastOverspeedCounterTimestampRef
-        // is 0 only at segment start (it's reset to 0 at each checkpoint). A momentary dip below the
-        // limit and re-crossing WITHIN the same segment must NOT add a fresh count — it just resumes
-        // the running 5-second cadence (the 5s tick below handles the next increment).
+        // +1 only the FIRST overspeed in this segment (lastTs===0); re-cross within segment doesn't re-add.
         if (lastOverspeedCounterTimestampRef.current === 0) {
           const newCount = overspeedCountRef.current + 1;
           overspeedCountRef.current = newCount;
@@ -450,7 +426,6 @@ const syncPendingCheckpoints = async () => {
           SoundUtils.playSpeedAlert();
           setTimeout(() => { VibrationSoundUtils.playSpeedAlert(); }, 150);
         } catch (error) {
-          console.log('Error playing alert:', error);
         }
       }
 
@@ -458,16 +433,13 @@ const syncPendingCheckpoints = async () => {
         try {
           EnhancedVoiceAlertUtils.announceOverspeed(rawSpeed, activeSpeedLimit);
         } catch (e) {
-          console.log('Voice alert error:', e);
         }
         lastOverspeedVoiceAlertRef.current = now;
       }
 
     } else {
       isCurrentlyOverspeedRef.current = false;
-      // NOTE: deliberately do NOT reset lastOverspeedCounterTimestampRef here. A momentary drop
-      // below the limit within the SAME segment must keep the 5-second counting cadence running
-      // (no fresh +1 on re-entry). It is reset to 0 only at a checkpoint → new segment.
+      // Don't reset the 5s counter timestamp on a dip — keeps cadence; reset only at checkpoint.
       if (isOverspeedAlertShownRef.current) {
         isOverspeedAlertShownRef.current = false;
         setIsOverspeedAlertShown(false);
@@ -484,7 +456,6 @@ const syncPendingCheckpoints = async () => {
           SoundUtils.resetAlertCount();
           VibrationSoundUtils.release();
         } catch (error) {
-          console.log('Error stopping alerts:', error);
         }
       }
     }
@@ -583,8 +554,6 @@ const syncPendingCheckpoints = async () => {
   };
 
   // ✅ Bug 5: identify the START checkpoint (by checkpoint_point=1000 or name === 'START')
-  // so we can gate other checkpoints behind it. Treat START as completed once it's marked
-  // locally (offline-ok) — it doesn't need to be server-synced for the gate to open.
   const isStartCheckpoint = (cp) => {
     const point = parseInt(cp?.checkpoint_point, 10);
     const name = (cp?.checkpoint_name || '').trim().toUpperCase();
@@ -611,8 +580,6 @@ const syncPendingCheckpoints = async () => {
 
       if (distance < checkpointRadius) {
         // ✅ Bug 5: Block non-START checkpoints until the START gate has been crossed.
-        // Without this, a participant standing near any other checkpoint at flag-off
-        // would have it auto-marked before they ever passed START.
         if (!startGateOpen && !isStartCheckpoint(cp)) {
           const now = Date.now();
           if (now - startGateWarningTimestampRef.current > 8000) {
@@ -647,7 +614,6 @@ const syncPendingCheckpoints = async () => {
           }
           const reachedTime = new Date().toLocaleTimeString();
           // Update the ref synchronously (mirrors MapSimulationScreen) so the START gate
-          // opens for the very next checkpoint without waiting for the state→ref sync effect.
           checkpointStatusRef.current = {
             ...checkpointStatusRef.current,
             [cp.checkpoint_id]: { time: reachedTime, completed: true },
@@ -719,14 +685,12 @@ const syncPendingCheckpoints = async () => {
         `event_${event_id}_completion_data`,
         JSON.stringify(completionData)
       );
-      // Event is over → clear the live timer + overspeed keys so a future fresh re-run of
-      // this event starts a brand-new countdown / zero overspeed (not the old saved one).
+      // Event over → clear timer + overspeed keys so a fresh re-run starts clean.
       await AsyncStorage.multiRemove([
         `event_${event_id}_end_ts`,
         `event_${event_id}_overspeed`,
       ]);
     } catch (error) {
-      console.error('❌ Error saving event completion data:', error);
     }
     
     setEventCompletedModal(false);
@@ -757,7 +721,6 @@ const syncPendingCheckpoints = async () => {
         ]
       );
     } catch (error) {
-      console.log('SOS call error:', error);
       showCenterToast('Error making SOS call', 'error');
     }
   };
@@ -801,7 +764,6 @@ const syncPendingCheckpoints = async () => {
       // Navigate directly to Home screen (no details alert)
       navigation.navigate('Drawer', { screen: 'Dashboard' });
     } catch (error) {
-      console.log('Abort error:', error);
       showCenterToast('Error aborting event', 'error');
     }
 
@@ -827,7 +789,6 @@ const syncPendingCheckpoints = async () => {
           SystemSoundUtils.playSystemSound(); // Alarm-style beep
           setTimeout(() => SystemSoundUtils.playSystemSound(), 600); // Double beep
         } catch (error) {
-          console.log('Error playing 15-minute warning sound:', error);
         }
         showCenterToast('⏰ 15 minutes remaining in the event!', 'warning');
         if (voiceAlertsEnabled) {
@@ -840,7 +801,6 @@ const syncPendingCheckpoints = async () => {
           SystemSoundUtils.playSystemSound();
           setTimeout(() => SystemSoundUtils.playSystemSound(), 500);
         } catch (error) {
-          console.log('Error playing event completion sound:', error);
         }
         setOkayTimeout(30);
         setEventCompletedModal(true);
@@ -850,15 +810,10 @@ const syncPendingCheckpoints = async () => {
     return () => clearInterval(timer);
   }, [timerReady, fifteenMinuteWarningGiven, voiceAlertsEnabled]);
 
-  // Region updates: when the user gestures the map, remember the zoom level so auto-follow
-  // preserves the user's chosen zoom. Programmatic moves skip the zoom-capture path.
+  // On user gesture, remember the zoom so auto-follow preserves it.
   const handleRegionChange = (region) => {
     if (isProgrammaticMove.current) return;
-    // A non-programmatic region change = the user is actively gesturing (pan OR
-    // pinch-zoom). Mark "touching" so the watchPosition auto-follow animate SKIPS this
-    // frame and doesn't yank the camera back to the old zoom mid-pinch — that race was
-    // the "zoom-in immediately zooms back out" bug. We also adopt their new zoom here
-    // so follow continues at the level they chose.
+    // Non-programmatic region change = user gesturing; mark touching so follow skips this frame.
     isUserTouchingMap.current = true;
     userManualZoomRef.current = {
       latitudeDelta: region.latitudeDelta,
@@ -874,11 +829,7 @@ const syncPendingCheckpoints = async () => {
     isProgrammaticMove.current = false;
     isUserTouchingMap.current = false;
     isPanGestureRef.current = false;
-    // ✅ Google-Maps navigation behavior: a manual ZOOM keeps auto-follow ON — we simply
-    // ADOPT the user's new zoom so the car keeps centering at the level they chose (zoom
-    // in to see the road ahead, the map still moves with you). Only a manual PAN turns
-    // follow off (handled in onPanDrag — "I want to look somewhere else"). We capture the
-    // zoom only for user gestures (not our own follow animations) to avoid any drift.
+    // Manual ZOOM keeps auto-follow ON (adopt new zoom); only manual PAN turns it off.
     if (!wasProgrammatic) {
       userManualZoomRef.current = {
         latitudeDelta: region.latitudeDelta,
@@ -940,27 +891,17 @@ const syncPendingCheckpoints = async () => {
         SystemSoundUtils.release();
         EnhancedVoiceAlertUtils.cleanup();
       } catch (error) {
-        console.log('Error releasing sound resources:', error);
       }
     };
   }, [watchId]);
 
-  // ✅ Start the GPS watch as soon as the map mounts so the marker, route, checkpoint
-  // proximity and speed are live from the first second — without waiting for the user to
-  // tap the recenter / My Location button. Auto-follow (camera tracking) stays OFF until
-  // the user opts in; only state updates flow in.
-  // Also restart the watch when the app comes back to the foreground — iOS/Android may
-  // pause the JS watcher when the app is backgrounded, which broke live tracking after
-  // the user hid and reopened the app.
+  // Start the GPS watch on mount so marker/route/checkpoint/speed are live immediately.
   useEffect(() => {
     startFollowingUserLocation();
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         startFollowingUserLocation();
-        // ✅ Resume recovery: the OS pauses the JS watch while backgrounded, so the
-        // first watch tick can be several seconds away. Grab an immediate one-shot
-        // fix here so the car jumps to the real current position the moment the user
-        // reopens the app (and checkpoints near them are evaluated right away).
+        // Resume recovery: grab an immediate one-shot fix when app returns to foreground.
         ensureLocationPermission().then((hasPermission) => {
           if (!hasPermission) return;
           Geolocation.getCurrentPosition(
@@ -995,9 +936,6 @@ const syncPendingCheckpoints = async () => {
   }, []);
 
   // Single permission helper used by every Geolocation call below.
-  // Android: PermissionsAndroid.request(ACCESS_FINE_LOCATION).
-  // iOS: react-native-geolocation-service needs Geolocation.requestAuthorization('whenInUse')
-  // explicitly — unlike the old @react-native-community/geolocation which auto-prompted.
   const ensureLocationPermission = async () => {
     if (Platform.OS === "android") {
       const granted = await PermissionsAndroid.request(
@@ -1017,10 +955,7 @@ const syncPendingCheckpoints = async () => {
     return status === 'granted';
   };
 
-  // Options shared by all three Geolocation calls. Tightened for vehicle/motion tracking:
-  //   maximumAge: 1000  — refuse cached fixes older than 1 second (was 5000).
-  //   forceRequestLocation / forceLocationManager — Android-only flags consumed by
-  //     react-native-geolocation-service to use FusedLocationProviderClient (Play Services).
+  // Shared high-accuracy geolocation options (1s max age, 1m distance filter).
   const GEO_HIGH_ACCURACY_OPTS = {
     enableHighAccuracy: true,
     timeout: 30000,
@@ -1082,10 +1017,7 @@ const syncPendingCheckpoints = async () => {
           if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
             try {
               isProgrammaticMove.current = true;
-              // ✅ Follow by moving ONLY the camera center — never set zoom per-fix. This
-              // preserves whatever zoom the user has pinched to, so a manual zoom-in STAYS
-              // zoomed-in while the car keeps following (Google-Maps navigation feel).
-              // Setting zoom/delta every fix was what snapped the user's zoom back out.
+              // Follow by moving only the camera center — never set zoom per-fix (preserves user zoom).
               mapRef.current.animateCamera(
                 {
                   center: {
@@ -1097,13 +1029,11 @@ const syncPendingCheckpoints = async () => {
               );
             } catch (error) {
               isProgrammaticMove.current = false;
-              console.log('Error auto-following in watchPosition:', error);
             }
           }
           
           checkProximityToCheckpoints(smoothedLocation.latitude, smoothedLocation.longitude);
           // ✅ FIX: isFollowingUser state yahan SET mat karo — stale closure se dobara ON ho jaata tha
-          // Following state sirf button press (startFollowingUserLocation call) pe manage hoti hai
         },
         (error) => {
           let msg = 'Location error';
@@ -1129,19 +1059,9 @@ const syncPendingCheckpoints = async () => {
     showCenterToast('Stopped following location', 'info');
   };
 
-  // One-shot "recenter map to my current GPS location" helper. Called by the floating
-  // recenter button and the "My Location" tab when the app doesn't yet have a fix.
-  // The shared body (permission → fetch → animate camera to street-level → start watch)
-  // used to be copy-pasted in both call sites; this version takes the only differences
-  // as options so the behavior for each button is preserved exactly.
-  //
-  // Options:
-  //   successToast   Toast string shown after the camera animation kicks off.
-  //   enableFollow   true → also flip the auto-follow flag ON (recenter button behavior).
-  //   resetRoute     true → reset the drawn user-route polyline to start at the new fix.
+  // One-shot recenter-to-current-GPS helper (recenter button + My Location tab).
   const fetchAndCenterOnCurrentLocation = async ({ successToast, enableFollow, resetRoute }) => {
-    // react-native-geolocation-service requires an explicit permission grant on both
-    // platforms before any fix can be returned, so do that here too.
+    // Needs an explicit location-permission grant on both platforms before a fix.
     const hasPermission = await ensureLocationPermission();
     if (!hasPermission) {
       showCenterToast('Location permission denied', 'error');
@@ -1153,8 +1073,7 @@ const syncPendingCheckpoints = async () => {
         const { latitude, longitude } = position.coords;
         if (mapRef.current) {
           try {
-            // Mark this camera move as programmatic so the region-change handler doesn't
-            // treat it as a user gesture and steal back the zoom.
+            // Mark this camera move as programmatic so the region handler ignores it.
             isProgrammaticMove.current = true;
             isUserTouchingMap.current = false;
             isPanGestureRef.current = false;
@@ -1168,7 +1087,6 @@ const syncPendingCheckpoints = async () => {
             userManualZoomRef.current = { latitudeDelta: 0.005, longitudeDelta: 0.005 };
           } catch (error) {
             isProgrammaticMove.current = false;
-            console.log('Error centering on location:', error);
             showCenterToast('Error centering map', 'error');
           }
         }
@@ -1405,7 +1323,6 @@ const syncPendingCheckpoints = async () => {
               }
             } catch (error) {
               isProgrammaticMove.current = false;
-              console.log('Error centering map:', error);
               showCenterToast('Error centering map', 'error');
             }
           } else {
@@ -1474,12 +1391,10 @@ const syncPendingCheckpoints = async () => {
                   }, 500);
                 } catch (error) {
                   isProgrammaticMove.current = false;
-                  console.log('Error centering map:', error);
                 }
               }
             } else {
-              // "My Location" tab: fetch + center + start the route trail; user opts into
-              // auto-follow separately via the dedicated recenter button.
+              // My Location tab: fetch + center + start the route trail.
               fetchAndCenterOnCurrentLocation({
                 successToast: 'Location found and tracking started!',
                 enableFollow: false,
