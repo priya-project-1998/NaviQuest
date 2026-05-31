@@ -30,6 +30,7 @@ import NotificationsScreen from '../screens/Notifications';
 import EventStartScreen from '../screens/EventStartScreen';
 import EventDetailsScreen from '../screens/EventDetailsScreen';
 import MapScreen from '../screens/MapScreen';
+import MapSimulationScreen from '../screens/MapSimulationScreen';
 import JoinEventScreen from '../screens/JoinEventScreen';
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -217,6 +218,7 @@ const AppNavigator = forwardRef((props, ref) => {
         <Stack.Screen name="EventStartScreen" component={EventStartScreen} />
         <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
         <Stack.Screen name="MapScreen" component={MapScreen} />
+        <Stack.Screen name="MapSimulationScreen" component={MapSimulationScreen} />
         <Stack.Screen name="ResultsScreen" component={ResultsScreen} />
         <Stack.Screen name="JoinEventScreen" component={JoinEventScreen} />
       </Stack.Navigator>

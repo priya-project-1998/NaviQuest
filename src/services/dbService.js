@@ -145,6 +145,21 @@ export const getCheckpointById = (checkpoint_id, callback) => {
   });
 };
 
+// ✅ Delete all stored checkpoints for an event (used by the simulator to start a
+// clean run; production code never calls this).
+export const clearCheckpointsForEvent = (event_id) => {
+  return new Promise((resolve) => {
+    db.transaction(tx => {
+      tx.executeSql(
+        `DELETE FROM checkpoints WHERE event_id = ?`,
+        [event_id],
+        () => resolve(true),
+        () => { resolve(false); return false; }
+      );
+    });
+  });
+};
+
 // ✅ Get all completed checkpoints for a specific event
 export const getCompletedCheckpointsForEvent = (event_id, callback) => {
   db.transaction(tx => {
