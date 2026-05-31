@@ -802,6 +802,10 @@ const syncPendingCheckpoints = async () => {
           setTimeout(() => SystemSoundUtils.playSystemSound(), 500);
         } catch (error) {
         }
+        // Play the actual event-over sound (event_end.mp3 via SoundModule) so time-over has audio, not just vibration — works on both Android and iOS.
+        if (voiceAlertsEnabled) {
+          try { EnhancedVoiceAlertUtils.announceEventFinish(checkpoints.length, duration || 'unknown duration'); } catch (e) {}
+        }
         setOkayTimeout(30);
         setEventCompletedModal(true);
       }
@@ -964,6 +968,10 @@ const syncPendingCheckpoints = async () => {
     forceRequestLocation: true,
     forceLocationManager: false,
     showLocationDialog: true,
+    // iOS: keep GPS alive when app is backgrounded / screen locked (needs UIBackgroundModes:location in Info.plist). Ignored on Android.
+    allowsBackgroundLocationUpdates: true,
+    pausesLocationUpdatesAutomatically: false,
+    showsBackgroundLocationIndicator: true,
   };
 
   // Function to start following user location
