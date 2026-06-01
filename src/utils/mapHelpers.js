@@ -116,7 +116,7 @@ export const formatTime = (secs) => {
 //                     Lower = smoother track but slower to react to real movement.
 //   minAccuracy       readings with reported accuracy worse than this (meters)
 //                     are dropped — keeps wild indoor/tunnel fixes off the map.
-export const createGpsSmoother = ({ smoothingFactor = 0.15, minAccuracy = 30 } = {}) => {
+export const createGpsSmoother = ({ smoothingFactor = 0.3, minAccuracy = 30 } = {}) => {
   // Last accepted smoothed point — shared across calls via closure.
   let smoothed = null;
 
@@ -142,13 +142,13 @@ export const createGpsSmoother = ({ smoothingFactor = 0.15, minAccuracy = 30 } =
 
     // Tune the blend factor per fix:
     //  - Big jump (>50m): trust history more (0.05) so we don't snap on a flyer.
-    //  - High-confidence fix (<10m accuracy): trust the new reading more (0.4).
-    //  - Decent fix (<20m accuracy): in between (0.25).
+    //  - High-confidence fix (<10m accuracy): trust the new reading more (0.6).
+    //  - Decent fix (<20m accuracy): in between (0.45).
     //  - Otherwise: use the configured default.
     let factor = smoothingFactor;
-    if (distanceFromSmoothed > 50) factor = 0.05;
-    else if (accuracy && accuracy < 10) factor = 0.4;
-    else if (accuracy && accuracy < 20) factor = 0.25;
+    if (distanceFromSmoothed > 50) factor = 0.1;
+    else if (accuracy && accuracy < 10) factor = 0.6;
+    else if (accuracy && accuracy < 20) factor = 0.45;
 
     // Standard EMA blend in lat/lng space — fine at the small distances we care about.
     smoothed = {

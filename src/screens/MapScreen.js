@@ -74,9 +74,8 @@ const MapScreen = ({ route, navigation }) => {
   const checkpoints = Array.isArray(paramCheckpoints) ? paramCheckpoints : [];
   const eventStartTimeRef = useRef(null);
   const syncingCheckpointsRef = useRef(new Set());
-  const startGateWarningTimestampRef = useRef(0);
   const eventEndTimestamp = useRef(null);
-  const smoothGPSCoordinatesRef = useRef(createGpsSmoother({ smoothingFactor: 0.15, minAccuracy: 30 }));
+  const smoothGPSCoordinatesRef = useRef(createGpsSmoother({ smoothingFactor: 0.3, minAccuracy: 30 }));
   const smoothGPSCoordinates = (lat, lng, acc) => smoothGPSCoordinatesRef.current(lat, lng, acc);
   const lastValidHeadingRef = useRef(0); // Stores last valid heading for rotation
   const previousRawLocationRef = useRef(null);
@@ -92,17 +91,21 @@ const MapScreen = ({ route, navigation }) => {
     }
   }, []);
 
-  const addStartCheckpointTime = () => {
-  try {
-    if (!eventStartTimeRef.current) return;
-    const now = new Date();
-    const timeTakenSec = Math.floor((now - eventStartTimeRef.current) / 1000);
-    if (timeTakenSec > 0 && eventEndTimestamp.current) {
-      eventEndTimestamp.current = eventEndTimestamp.current + (timeTakenSec * 1000);
+  const addStartCheckpointTime = async () => {
+    try {
+      if (!eventStartTimeRef.current) return;
+      const now = new Date();
+      const timeTakenSec = Math.floor((now - eventStartTimeRef.current) / 1000);
+      if (timeTakenSec > 0 && eventEndTimestamp.current) {
+        const newEndTs = eventEndTimestamp.current + (timeTakenSec * 1000);
+        eventEndTimestamp.current = newEndTs;
+        if (event_id) {
+          await AsyncStorage.setItem(`event_${event_id}_end_ts`, String(newEndTs));
+        }
+      }
+    } catch (e) {
     }
-  } catch (e) {
-  }
-};
+  };
 
   useEffect(() => {
     if (!duration) return;
@@ -553,20 +556,8 @@ const syncPendingCheckpoints = async () => {
     return false;
   };
 
-  // ✅ Bug 5: identify the START checkpoint (by checkpoint_point=1000 or name === 'START')
-  const isStartCheckpoint = (cp) => {
-    const point = parseInt(cp?.checkpoint_point, 10);
-    const name = (cp?.checkpoint_name || '').trim().toUpperCase();
-    return point === 1000 || name === 'START';
-  };
-  const isStartCompleted = () => {
-    const startCp = checkpoints.find(isStartCheckpoint);
-    if (!startCp) return true; // No START defined → no gate to enforce
-    return !!checkpointStatusRef.current[startCp.checkpoint_id]?.completed;
-  };
 
   const checkProximityToCheckpoints = (lat, lng) => {
-    const startGateOpen = isStartCompleted();
     checkpoints.forEach((cp) => {
       const distance = getDistanceFromLatLonInMeters(
         lat,
@@ -576,18 +567,9 @@ const syncPendingCheckpoints = async () => {
       );
       const checkpointRadius = (cp.accuracy && !isNaN(parseFloat(cp.accuracy)) && parseFloat(cp.accuracy) > 0)
         ? parseFloat(cp.accuracy)
-        : 10;
+        : 30;
 
       if (distance < checkpointRadius) {
-        // ✅ Bug 5: Block non-START checkpoints until the START gate has been crossed.
-        if (!startGateOpen && !isStartCheckpoint(cp)) {
-          const now = Date.now();
-          if (now - startGateWarningTimestampRef.current > 8000) {
-            startGateWarningTimestampRef.current = now;
-            showCenterToast('Please reach the START gate first to begin the event.', 'warning');
-          }
-          return;
-        }
         if (!checkpointStatusRef.current[cp.checkpoint_id]?.completed && !syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
           syncingCheckpointsRef.current.add(cp.checkpoint_id);
           const capturedOverspeedCount = overspeedCountRef.current;
@@ -817,14 +799,14 @@ const syncPendingCheckpoints = async () => {
   // On user gesture, remember the zoom so auto-follow preserves it.
   const handleRegionChange = (region) => {
     if (isProgrammaticMove.current) return;
-    // Non-programmatic region change = user gesturing; mark touching so follow skips this frame.
     isUserTouchingMap.current = true;
+    if (!region.latitudeDelta || isNaN(region.latitudeDelta) || region.latitudeDelta <= 0) return;
     userManualZoomRef.current = {
       latitudeDelta: region.latitudeDelta,
       longitudeDelta: region.longitudeDelta,
     };
     const zoom = Math.round(Math.log2(360 / region.latitudeDelta));
-    currentZoomLevelRef.current = Math.max(1, Math.min(20, zoom));
+    currentZoomLevelRef.current = Math.max(15, Math.min(20, zoom));
   };
 
   // Fires after any gesture finishes — always capture the final zoom so it sticks.
@@ -833,13 +815,14 @@ const syncPendingCheckpoints = async () => {
     isProgrammaticMove.current = false;
     isUserTouchingMap.current = false;
     isPanGestureRef.current = false;
-    // Manual ZOOM keeps auto-follow ON (adopt new zoom); only manual PAN turns it off.
     if (!wasProgrammatic) {
+      if (!region.latitudeDelta || isNaN(region.latitudeDelta) || region.latitudeDelta <= 0) return;
       userManualZoomRef.current = {
         latitudeDelta: region.latitudeDelta,
         longitudeDelta: region.longitudeDelta,
       };
-      currentZoomLevelRef.current = Math.max(1, Math.min(20, Math.round(Math.log2(360 / region.latitudeDelta))));
+      const zoom = Math.round(Math.log2(360 / region.latitudeDelta));
+      currentZoomLevelRef.current = Math.max(15, Math.min(20, zoom));
     }
   };
 
@@ -899,12 +882,51 @@ const syncPendingCheckpoints = async () => {
     };
   }, [watchId]);
 
+  const restoreEventData = useCallback(() => {
+    if (!event_id) return;
+
+    getCompletedCheckpointsForEvent(event_id, (completedCheckpoints) => {
+      const previousCheckpointStatus = {};
+      const restoredMarkerColors = {};
+      completedCheckpoints.forEach((checkpoint) => {
+        previousCheckpointStatus[checkpoint.checkpoint_id] = {
+          time: checkpoint.time_stamp,
+          completed: true
+        };
+        const cpPoint = parseInt(checkpoint.checkpoint_point, 10);
+        const cpName = checkpoint.checkpoint_name || '';
+        const isFixed = cpPoint === 1000 || cpPoint === 2000
+          || cpName === 'START' || cpName === 'FINISH';
+        if (!isFixed) {
+          restoredMarkerColors[checkpoint.checkpoint_id] = '#185a9d';
+        }
+      });
+
+      if (Object.keys(previousCheckpointStatus).length > 0) {
+        checkpointStatusRef.current = { ...checkpointStatusRef.current, ...previousCheckpointStatus };
+        setCheckpointStatus((prev) => ({ ...prev, ...previousCheckpointStatus }));
+        setMarkerColors((prev) => ({ ...prev, ...restoredMarkerColors }));
+      }
+    });
+
+    AsyncStorage.getItem(`event_${event_id}_overspeed`).then((saved) => {
+      if (saved != null) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val > 0) {
+          overspeedCountRef.current = val;
+          setOverspeedCount(val);
+        }
+      }
+    }).catch(() => {});
+  }, [event_id]);
+
   // Start the GPS watch on mount so marker/route/checkpoint/speed are live immediately.
   useEffect(() => {
     startFollowingUserLocation();
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         startFollowingUserLocation();
+        restoreEventData();
         // Resume recovery: grab an immediate one-shot fix when app returns to foreground.
         ensureLocationPermission().then((hasPermission) => {
           if (!hasPermission) return;
@@ -914,7 +936,7 @@ const syncPendingCheckpoints = async () => {
               const smoothed = smoothGPSCoordinates(latitude, longitude, accuracy);
               setLastUserLocation(smoothed);
               setUserRoute((prev) => [...prev, smoothed]);
-              if (isFollowingUserRef.current && mapRef.current) {
+              if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
                 try {
                   isProgrammaticMove.current = true;
                   mapRef.current.animateCamera(
@@ -936,8 +958,7 @@ const syncPendingCheckpoints = async () => {
     return () => {
       try { sub.remove(); } catch (e) {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [restoreEventData]);
 
   // Single permission helper used by every Geolocation call below.
   const ensureLocationPermission = async () => {
@@ -959,15 +980,17 @@ const syncPendingCheckpoints = async () => {
     return status === 'granted';
   };
 
-  // Shared high-accuracy geolocation options (1s max age, 1m distance filter).
+  // Shared high-accuracy geolocation options. distanceFilter:3 prevents JS-thread flood at speed; maximumAge:2000 avoids re-rendering on stale fixes.
   const GEO_HIGH_ACCURACY_OPTS = {
     enableHighAccuracy: true,
     timeout: 30000,
-    maximumAge: 1000,
-    distanceFilter: 1,
+    maximumAge: 2000,
+    distanceFilter: 3,
     forceRequestLocation: true,
     forceLocationManager: false,
     showLocationDialog: true,
+    interval: 1000,
+    fastestInterval: 500,
     // iOS: keep GPS alive when app is backgrounded / screen locked (needs UIBackgroundModes:location in Info.plist). Ignored on Android.
     allowsBackgroundLocationUpdates: true,
     pausesLocationUpdatesAutomatically: false,
@@ -989,6 +1012,8 @@ const syncPendingCheckpoints = async () => {
 
       const id = Geolocation.watchPosition(
         (position) => {
+          // Drop low-quality fixes — satellite lag causes off-road jumps above 25m accuracy.
+          if (position.coords.accuracy > 25) return;
           const { latitude, longitude, heading, accuracy } = position.coords;
           const previousRaw = previousRawLocationRef.current || { latitude, longitude };
           const smoothedLocation = smoothGPSCoordinates(latitude, longitude, accuracy);
@@ -1025,13 +1050,13 @@ const syncPendingCheckpoints = async () => {
           if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
             try {
               isProgrammaticMove.current = true;
-              // Follow by moving only the camera center — never set zoom per-fix (preserves user zoom).
               mapRef.current.animateCamera(
                 {
                   center: {
                     latitude: smoothedLocation.latitude,
                     longitude: smoothedLocation.longitude,
                   },
+                  zoom: currentZoomLevelRef.current,
                 },
                 { duration: 400 }
               );
@@ -1299,26 +1324,15 @@ const syncPendingCheckpoints = async () => {
               isPanGestureRef.current = false;
               currentZoomLevelRef.current = 20;
               userManualZoomRef.current = { latitudeDelta: 0.0006, longitudeDelta: 0.0006 };
-              if (Platform.OS === 'ios') {
-                // ✅ iOS: animateToRegion ignores latitudeDelta for zoom — use animateCamera with explicit zoom
-                mapRef.current.animateCamera({
-                  center: {
-                    latitude: lastUserLocation.latitude,
-                    longitude: lastUserLocation.longitude,
-                  },
-                  zoom: 20,
-                  heading: userHeading,
-                  pitch: 0,
-                }, { duration: 600 });
-              } else {
-                // ✅ Android: existing animateToRegion works perfectly — untouched
-                mapRef.current.animateToRegion({
+              mapRef.current.animateCamera({
+                center: {
                   latitude: lastUserLocation.latitude,
                   longitude: lastUserLocation.longitude,
-                  latitudeDelta: 0.0006,
-                  longitudeDelta: 0.0006,
-                }, 600);
-              }
+                },
+                zoom: 20,
+                heading: userHeading,
+                pitch: 0,
+              }, { duration: 600 });
 
               const wasAlreadyFollowing = isFollowingUser;
               if (!wasAlreadyFollowing) {
@@ -1391,12 +1405,16 @@ const syncPendingCheckpoints = async () => {
                   isProgrammaticMove.current = true;
                   isUserTouchingMap.current = false;
                   isPanGestureRef.current = false;
-                  mapRef.current.animateToRegion({
-                    latitude: lastUserLocation.latitude,
-                    longitude: lastUserLocation.longitude,
-                    latitudeDelta: userManualZoomRef.current.latitudeDelta,
-                    longitudeDelta: userManualZoomRef.current.longitudeDelta,
-                  }, 500);
+                  mapRef.current.animateCamera(
+                    {
+                      center: {
+                        latitude: lastUserLocation.latitude,
+                        longitude: lastUserLocation.longitude,
+                      },
+                      zoom: currentZoomLevelRef.current,
+                    },
+                    { duration: 500 }
+                  );
                 } catch (error) {
                   isProgrammaticMove.current = false;
                 }

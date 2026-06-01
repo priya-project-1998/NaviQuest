@@ -140,7 +140,13 @@ export const getCheckpointById = (checkpoint_id, callback) => {
     tx.executeSql(
       `SELECT * FROM checkpoints WHERE checkpoint_id = ?`,
       [checkpoint_id],
-      (txObj, { rows: { _array } }) => callback(_array && _array.length > 0 ? _array[0] : null)
+      (txObj, results) => {
+        if (results.rows.length > 0) {
+          callback(results.rows.item(0));
+        } else {
+          callback(null);
+        }
+      }
     );
   });
 };
@@ -166,7 +172,13 @@ export const getCompletedCheckpointsForEvent = (event_id, callback) => {
     tx.executeSql(
       `SELECT * FROM checkpoints WHERE event_id = ? AND status = 'completed'`,
       [event_id],
-      (txObj, { rows: { _array } }) => callback(_array || [])
+      (txObj, results) => {
+        const temp = [];
+        for (let i = 0; i < results.rows.length; ++i) {
+          temp.push(results.rows.item(i));
+        }
+        callback(temp);
+      }
     );
   });
 };
