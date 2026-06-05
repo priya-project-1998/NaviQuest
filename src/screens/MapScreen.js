@@ -86,6 +86,7 @@ const MapScreen = ({ route, navigation }) => {
   const lastSpeedProcessedTimestampRef = useRef(0);
   // 🛠️ DEBUG — remove before production
   const debugFirstFixShownRef = useRef(false);
+  const carMarkerRef = useRef(null); // imperative handle → push GPS updates without re-rendering the marker
 
   useEffect(() => {
     if (!eventStartTimeRef.current) {
@@ -1067,6 +1068,7 @@ const syncPendingCheckpoints = async () => {
               const { latitude, longitude, accuracy } = position.coords;
               const smoothed = smoothGPSCoordinates(latitude, longitude, accuracy);
               setLastUserLocation(smoothed);
+              carMarkerRef.current?.updatePosition(smoothed.latitude, smoothed.longitude, 0, 0);
               setUserRoute((prev) => [...prev, smoothed]);
               if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
                 try {
@@ -1214,6 +1216,17 @@ const syncPendingCheckpoints = async () => {
           }
           setUserHeading(newHeading);
           previousRawLocationRef.current = { latitude, longitude };
+          // Feed the marker imperatively — bypasses the React render cycle so the
+          // AnimatedRegion transition is never interrupted by parent state updates.
+          const markerSpeedKmh = typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)
+            ? Math.round(position.coords.speed * 3.6)
+            : 0;
+          carMarkerRef.current?.updatePosition(
+            smoothedLocation.latitude,
+            smoothedLocation.longitude,
+            newHeading,
+            markerSpeedKmh
+          );
           if (typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)) {
             const speedKmh = Math.round(position.coords.speed * 3.6);
             checkSpeedLimit(speedKmh);
@@ -1297,6 +1310,7 @@ const syncPendingCheckpoints = async () => {
           }
         }
         setLastUserLocation({ latitude, longitude });
+        carMarkerRef.current?.updatePosition(latitude, longitude, 0, 0);
         if (resetRoute) setUserRoute([{ latitude, longitude }]);
         // Always (re)start the GPS watch so live tracking is active from now on.
         startFollowingUserLocation();
@@ -1459,7 +1473,7 @@ const syncPendingCheckpoints = async () => {
         toolbarEnabled={false}
       >
         {lastUserLocation && (
-          <UserCarMarker coordinate={lastUserLocation} heading={userHeading} speed={currentSpeed} />
+          <UserCarMarker ref={carMarkerRef} initialCoordinate={lastUserLocation} />
         )}
         {checkpoints.map((cp) => (
           <CheckpointPin
