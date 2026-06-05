@@ -39,6 +39,10 @@
 	<string>NaviQuest uses your location to help you find and join events near you, and to show event locations on the map.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>NaviQuest uses your location to help you find and join events near you, and to show event locations on the map.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSPhotoLibraryAddOnlyUsageDescription</key>
 	<string>NaviQuest needs permission to add photos to your photo library when you save event images.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

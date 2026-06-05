@@ -116,7 +116,7 @@ export const formatTime = (secs) => {
 //                     Lower = smoother track but slower to react to real movement.
 //   minAccuracy       readings with reported accuracy worse than this (meters)
 //                     are dropped — keeps wild indoor/tunnel fixes off the map.
-export const createGpsSmoother = ({ smoothingFactor = 0.15, minAccuracy = 30 } = {}) => {
+export const createGpsSmoother = ({ smoothingFactor = 0.3, minAccuracy = 30 } = {}) => {
   // Last accepted smoothed point — shared across calls via closure.
   let smoothed = null;
 
@@ -142,13 +142,19 @@ export const createGpsSmoother = ({ smoothingFactor = 0.15, minAccuracy = 30 } =
 
     // Tune the blend factor per fix:
     //  - Big jump (>50m): trust history more (0.05) so we don't snap on a flyer.
-    //  - High-confidence fix (<10m accuracy): trust the new reading more (0.4).
-    //  - Decent fix (<20m accuracy): in between (0.25).
+    //  - High-confidence fix (<10m accuracy): trust the new reading more (0.6).
+    //  - Decent fix (<20m accuracy): in between (0.45).
     //  - Otherwise: use the configured default.
     let factor = smoothingFactor;
-    if (distanceFromSmoothed > 50) factor = 0.05;
-    else if (accuracy && accuracy < 10) factor = 0.4;
-    else if (accuracy && accuracy < 20) factor = 0.25;
+    let factorReason = 'default';
+    if (distanceFromSmoothed > 50) { factor = 0.1; factorReason = 'BIG-JUMP(>50m)'; }
+    else if (accuracy && accuracy < 15) { factor = 0.5; factorReason = 'HIGH-ACCURACY(<15m)'; }
+    else if (accuracy && accuracy > 25) { factor = 0.1; factorReason = 'POOR-ACCURACY(>25m)'; }
+
+    // 🛠️ DEBUG — log when smoother applies heavy correction (off-road diagnosis)
+    if (distanceFromSmoothed > 20 || factor === 0.1) {
+      console.log(`[SMOOTHER] dist:${Math.round(distanceFromSmoothed)}m factor:${factor} reason:${factorReason} acc:${Math.round(accuracy||0)}m`);
+    }
 
     // Standard EMA blend in lat/lng space — fine at the small distances we care about.
     smoothed = {
