@@ -84,6 +84,8 @@ const MapScreen = ({ route, navigation }) => {
   const speedHistoryRef = useRef([]); // Rolling window of recent speed readings
   const SPEED_HISTORY_SIZE = 3; // Number of readings to average (smooths out spikes)
   const lastSpeedProcessedTimestampRef = useRef(0);
+  // 🛠️ DEBUG — remove before production
+  const debugFirstFixShownRef = useRef(false);
 
   useEffect(() => {
     if (!eventStartTimeRef.current) {
@@ -142,7 +144,11 @@ const MapScreen = ({ route, navigation }) => {
         }
       }
       eventEndTimestamp.current = endTs;
-      setRemainingSeconds(Math.max(0, Math.floor((endTs - now) / 1000)));
+      const remainingSec = Math.max(0, Math.floor((endTs - now) / 1000));
+      setRemainingSeconds(remainingSec);
+      // 🛠️ DEBUG
+      const isResumed = !!(await AsyncStorage.getItem(key).catch(() => null));
+      showCenterToast(`[TIMER] duration:${duration} | totalSec:${totalSeconds} | remaining:${remainingSec}s | resumed:${isResumed}`, 'info', 3000);
       setTimerReady(true); // ref is now populated → triggers the countdown interval effect to (re-)run and start ticking.
     })();
   }, [duration, event_id]);
@@ -165,6 +171,8 @@ const MapScreen = ({ route, navigation }) => {
 
   useEffect(() => {
     if (event_id) {
+      // 🛠️ DEBUG
+      showCenterToast(`[RESTORE-START] Loading saved checkpoints from DB for event:${event_id}`, 'info', 3000);
       getCompletedCheckpointsForEvent(event_id, (completedCheckpoints) => {
         const previousCheckpointStatus = {};
         const restoredMarkerColors = {};
@@ -182,11 +190,17 @@ const MapScreen = ({ route, navigation }) => {
             restoredMarkerColors[checkpoint.checkpoint_id] = '#185a9d'; // blue for completed regular checkpoints
           }
         });
-        
+
         if (Object.keys(previousCheckpointStatus).length > 0) {
           checkpointStatusRef.current = previousCheckpointStatus; // sync ref now so the watch sees restored state on its first tick
           setCheckpointStatus(previousCheckpointStatus);
           setMarkerColors((prev) => ({ ...prev, ...restoredMarkerColors }));
+          // 🛠️ DEBUG
+          const names = completedCheckpoints.map(c => c.checkpoint_name).join(', ');
+          showCenterToast(`[RESTORE-OK] ${completedCheckpoints.length} checkpoints restored: ${names}`, 'success', 3000);
+        } else {
+          // 🛠️ DEBUG
+          showCenterToast(`[RESTORE-EMPTY] No saved checkpoints found in DB for this event`, 'warning', 3000);
         }
       });
     }
@@ -228,6 +242,8 @@ const MapScreen = ({ route, navigation }) => {
   useEffect(() => {
   if (speed_limit && speed_limit !== speedLimit) {
     setSpeedLimit(speed_limit);
+    // 🛠️ DEBUG
+    showCenterToast(`[SPEED-LIMIT] Set from API: ${speed_limit} km/h`, 'info', 3000);
   }
 }, [speed_limit]);
 
@@ -245,6 +261,8 @@ useEffect(() => {
       return; // Pehli call ignore — yeh sirf current state read hai, actual change nahi
     }
     if (state.isConnected) {
+      // 🛠️ DEBUG
+      showCenterToast(`[NET-RECONNECT] Internet back — triggering pending sync`, 'info', 3000);
       await syncPendingCheckpoints();
     }
   });
@@ -256,9 +274,15 @@ const syncPendingCheckpoints = async () => {
   try {
     let pending = await getPendingCheckpoints();
     if (!Array.isArray(pending)) pending = [];
+    // 🛠️ DEBUG
+    showCenterToast(`[PENDING-SYNC] Found ${pending.length} checkpoint(s) to sync`, 'info', 3000);
     if (pending.length === 0) return;
     const token = await AsyncStorage.getItem('authToken');
-    if (!token) return;
+    if (!token) {
+      // 🛠️ DEBUG
+      showCenterToast(`[PENDING-SYNC] No auth token — aborting sync`, 'error', 3000);
+      return;
+    }
     let successCount = 0;
     let failCount = 0;
 
@@ -288,7 +312,24 @@ const syncPendingCheckpoints = async () => {
         } catch (jsonErr) {
         }
         
-        if (data && data.status === "success") {
+        const isSuccess = data?.status === "success";
+        // Treat HTTP-200 with non-error server status as synced too — covers "already_processed"
+        // / "duplicate" responses that would otherwise loop forever in the pending queue.
+        const isAlreadySynced = res.status === 200 && !isSuccess
+          && data?.status !== "error" && data?.status !== "failed";
+
+
+        if (res.status === 401) {
+          showCenterToast('⚠️ Session expired — please logout and login again', 'error');
+          break;
+        }
+        if (res.status === 403) {
+          showCenterToast(`⚠️ ${data?.message || 'Access denied by server'}`, 'warning');
+          markSynced(item.id, item.event_id, item.checkpoint_id);
+          continue;
+        }
+
+        if (isSuccess || isAlreadySynced) {
           markSynced(item.id, item.event_id, item.checkpoint_id);
           if (item.event_id === event_id) {
             const pendingCpObj = checkpoints.find(c => c.checkpoint_id === item.checkpoint_id);
@@ -335,17 +376,21 @@ const syncPendingCheckpoints = async () => {
           successCount++;
         } else {
           failCount++;
+          // 🛠️ DEBUG
+          showCenterToast(`[SYNC-FAIL] HTTP:${res.status} | ${data?.status} | ${data?.message || '?'}`, 'error', 3000);
         }
       } catch (err) {
         failCount++;
+        // 🛠️ DEBUG
+        showCenterToast(`[SYNC-ERR] ${err?.message || String(err)}`, 'error', 3000);
       }
     }
 
-    if (successCount > 1) {
-      showCenterToast(`✅ Synced ${successCount} pending checkpoints`, 'success');
+    if (successCount >= 1) {
+      showCenterToast(`✅ ${successCount} checkpoint(s) synced`, 'success');
     }
-    if (failCount > 0) {
-      showCenterToast(`⚠️ Failed to sync ${failCount} checkpoint(s) — will retry`, 'warning');
+    if (failCount > 0 && successCount === 0) {
+      showCenterToast(`⚠️ Sync failed for ${failCount} checkpoint(s) — will retry on reconnect`, 'warning');
     }
   } catch (err) {
   }
@@ -464,7 +509,7 @@ const syncPendingCheckpoints = async () => {
     }
   }, [speedLimit, voiceAlertsEnabled]);
 
-  const syncCheckpointToServer = async (checkpointId, capturedOverspeedCount = 0) => {
+  const syncCheckpointToServer = async (checkpointId, capturedOverspeedCount = 0, suppressStartFinishAlert = false) => {
     if (checkpointStatusRef.current[checkpointId]?.completed && !syncingCheckpointsRef.current.has(checkpointId)) {
       return true;
     }
@@ -475,6 +520,8 @@ const syncPendingCheckpoints = async () => {
       const cpName = cpObj?.checkpoint_name || checkpointId;
       const reachedTime = new Date().toLocaleTimeString();
       showCenterToast(`📴 No internet — Checkpoint "${cpName}" saved locally at ${reachedTime}. Will sync when connected.`, 'warning');
+      // 🛠️ DEBUG
+      showCenterToast(`[OFFLINE-SAVE] "${cpName}" | overspeed:${capturedOverspeedCount} | SQLite only`, 'warning', 3000);
       if (voiceAlertsEnabled) {
         try {
           const completedCount = Object.values(checkpointStatusRef.current).filter(s => s.completed).length + 1;
@@ -510,17 +557,34 @@ const syncPendingCheckpoints = async () => {
       );
       let data = {};
       try { data = await res.json(); } catch {}
+      if (res.status === 401) {
+        showCenterToast('⚠️ Session expired — please logout and login again', 'error');
+        syncingCheckpointsRef.current.delete(checkpointId);
+        return false;
+      }
+      if (res.status === 403) {
+        // "Not a participant" or similar — can never succeed, discard from queue.
+        markSynced(null, event_id, checkpointId);
+        syncingCheckpointsRef.current.delete(checkpointId);
+        return false;
+      }
       if ((res.status === 200 && data.status === "success") || data.status === "success") {
         markSynced(null, event_id, checkpointId);
         const cpObj = checkpoints.find(c => c.checkpoint_id === checkpointId);
         const cpName = cpObj?.checkpoint_name || checkpointId;
         const cpPoint = parseInt(cpObj?.checkpoint_point, 10);
+        // 🛠️ DEBUG — server sync success
+        showCenterToast(`[SERVER-OK] "${cpName}" synced ✅ | overspeed:${capturedOverspeedCount}`, 'success', 3000);
         if (cpName !== 'START' && cpName !== 'FINISH') {
           setMarkerColors((prev) => ({ ...prev, [checkpointId]: '#185a9d' })); // blue for synced
         }
         const syncTime = new Date().toLocaleTimeString();
         if (cpName === 'START') {
-          showCenterToast(`🏁 Event Started! Welcome to the rally at ${syncTime}`, 'success');
+          // Toast already fired immediately in checkProximityToCheckpoints when suppressStartFinishAlert is true.
+          if (!suppressStartFinishAlert) {
+            showCenterToast(`🏁 Event Started! Welcome to the rally at ${syncTime}`, 'success');
+          }
+          addStartCheckpointTime();
         } else {
           const successMessage = `Checkpoint "${cpName}" synced successfully at ${syncTime}`;
           if (voiceAlertsEnabled) {
@@ -530,15 +594,16 @@ const syncPendingCheckpoints = async () => {
           showCenterToast(successMessage, 'success');
         }
         if (cpName === "FINISH") {
+          // Modal already shown immediately in checkProximityToCheckpoints; avoid resetting the countdown.
+          if (!suppressStartFinishAlert) {
             setOkayTimeout(30);
             setEventCompletedModal(true);
-        }
-        if (cpName === "START") {
-            addStartCheckpointTime();
+          }
         }
         return true;
       } else {
-        showCenterToast('Server error: ' + (data.message || 'Failed'), 'error');
+        // 🛠️ DEBUG
+        showCenterToast(`[CP-FAIL] HTTP:${res.status} | ${data?.status} | ${data?.message || '?'}`, 'error', 3000);
         syncingCheckpointsRef.current.delete(checkpointId);
         setTimeout(() => {
           syncPendingCheckpoints();
@@ -547,7 +612,8 @@ const syncPendingCheckpoints = async () => {
       }
     } catch (err) {
     
-      showCenterToast('Network/API error - checkpoint saved locally', 'warning');
+      // 🛠️ DEBUG
+      showCenterToast(`[CP-ERR] ${err?.message || String(err)}`, 'error', 3000);
       syncingCheckpointsRef.current.delete(checkpointId);
       setTimeout(() => {
         syncPendingCheckpoints();
@@ -557,8 +623,16 @@ const syncPendingCheckpoints = async () => {
   };
 
 
-  const checkProximityToCheckpoints = (lat, lng) => {
+  const checkProximityToCheckpoints = (lat, lng, accuracy = 0) => {
+    // Reject fixes with poor GPS accuracy to prevent ghost syncs from drift.
+    if (accuracy > 30) {
+      // 🛠️ DEBUG
+      showCenterToast(`[GPS-GATE] accuracy ${Math.round(accuracy)}m > 30m — skipped`, 'warning', 3000);
+      return;
+    }
     checkpoints.forEach((cp) => {
+      // Skip already-completed checkpoints immediately — no distance math, no alert re-trigger.
+      if (checkpointStatusRef.current[cp.checkpoint_id]?.completed) return;
       const distance = getDistanceFromLatLonInMeters(
         lat,
         lng,
@@ -569,6 +643,8 @@ const syncPendingCheckpoints = async () => {
         ? parseFloat(cp.accuracy)
         : 30;
 
+      // 🛠️ DEBUG — log proximity for every checkpoint (remove if too noisy)
+      // showCenterToast(`[PROX] "${cp.checkpoint_name}" dist:${Math.round(distance)}m radius:${checkpointRadius}m`, 'info', 3000);
       if (distance < checkpointRadius) {
         if (!checkpointStatusRef.current[cp.checkpoint_id]?.completed && !syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
           syncingCheckpointsRef.current.add(cp.checkpoint_id);
@@ -595,6 +671,8 @@ const syncPendingCheckpoints = async () => {
             } catch (e) {}
           }
           const reachedTime = new Date().toLocaleTimeString();
+          // 🛠️ DEBUG — checkpoint detected
+          showCenterToast(`[CP-DETECTED] "${cp.checkpoint_name}" | overspeed:${capturedOverspeedCount} | time:${reachedTime}`, 'info', 3000);
           // Update the ref synchronously (mirrors MapSimulationScreen) so the START gate
           checkpointStatusRef.current = {
             ...checkpointStatusRef.current,
@@ -619,7 +697,27 @@ const syncPendingCheckpoints = async () => {
             status: 'completed',
             over_speed: capturedOverspeedCount
           });
-          syncCheckpointToServer(cp.checkpoint_id, capturedOverspeedCount);
+          // 🛠️ DEBUG — local DB save confirm
+          showCenterToast(`[DB-SAVED] "${cp.checkpoint_name}" | overspeed:${capturedOverspeedCount} | event:${event_id}`, 'info', 3000);
+
+          // Fire START/FINISH alert immediately — don't block on server round-trip.
+          const cpNameImm = (cp.checkpoint_name || '').trim();
+          const cpPointImm = parseInt(cp.checkpoint_point, 10);
+          const isStartImm = cpNameImm === 'START' || cpPointImm === 1000;
+          const isFinishImm = cpNameImm === 'FINISH' || cpPointImm === 2000;
+
+          if (isStartImm) {
+            showCenterToast(`🏁 Event Started! Welcome to the rally at ${reachedTime}`, 'success');
+          } else if (isFinishImm) {
+            showCenterToast(`🏁 Finish line crossed at ${reachedTime}!`, 'success');
+            if (voiceAlertsEnabled) {
+              try { EnhancedVoiceAlertUtils.announceEventFinish(checkpoints.length, duration || 'unknown duration'); } catch (e) {}
+            }
+            setOkayTimeout(30);
+            setEventCompletedModal(true);
+          }
+
+          syncCheckpointToServer(cp.checkpoint_id, capturedOverspeedCount, isStartImm || isFinishImm);
         } else if (checkpointStatusRef.current[cp.checkpoint_id]?.completed || syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
         }
       }
@@ -885,6 +983,9 @@ const syncPendingCheckpoints = async () => {
   const restoreEventData = useCallback(() => {
     if (!event_id) return;
 
+    // 🛠️ DEBUG
+    showCenterToast(`[BG-RESTORE] App foregrounded — reloading DB checkpoints`, 'info', 3000);
+
     getCompletedCheckpointsForEvent(event_id, (completedCheckpoints) => {
       const previousCheckpointStatus = {};
       const restoredMarkerColors = {};
@@ -906,6 +1007,12 @@ const syncPendingCheckpoints = async () => {
         checkpointStatusRef.current = { ...checkpointStatusRef.current, ...previousCheckpointStatus };
         setCheckpointStatus((prev) => ({ ...prev, ...previousCheckpointStatus }));
         setMarkerColors((prev) => ({ ...prev, ...restoredMarkerColors }));
+        // 🛠️ DEBUG
+        const names = completedCheckpoints.map(c => c.checkpoint_name).join(', ');
+        showCenterToast(`[BG-RESTORE-OK] ${completedCheckpoints.length} checkpoints: ${names}`, 'success', 3000);
+      } else {
+        // 🛠️ DEBUG
+        showCenterToast(`[BG-RESTORE-EMPTY] No checkpoints found in DB`, 'warning', 3000);
       }
     });
 
@@ -915,16 +1022,41 @@ const syncPendingCheckpoints = async () => {
         if (!isNaN(val) && val > 0) {
           overspeedCountRef.current = val;
           setOverspeedCount(val);
+          // 🛠️ DEBUG
+          showCenterToast(`[BG-OVERSPEED] Restored overspeed count: ${val}`, 'info', 3000);
         }
       }
-    }).catch(() => {});
+    }).catch((err) => {
+      // 🛠️ DEBUG
+      showCenterToast(`[BG-OVERSPEED-ERR] ${err?.message || 'AsyncStorage failed'}`, 'error', 3000);
+    });
   }, [event_id]);
 
   // Start the GPS watch on mount so marker/route/checkpoint/speed are live immediately.
   useEffect(() => {
     startFollowingUserLocation();
     const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background') {
+        // 🛠️ DEBUG
+        showCenterToast(`[APP-BG] App going to background — animations stopped`, 'info', 3000);
+        // Stop looping animations — running Animated.loop in background can cause memory leaks.
+        if (flashAnimationRef.current) {
+          flashAnimationRef.current.stop();
+          flashAnimationRef.current = null;
+        }
+      }
+
       if (nextState === 'active') {
+        // Restart overspeed flash if it was active before backgrounding.
+        if (isOverspeedAlertShownRef.current && !flashAnimationRef.current) {
+          flashAnimationRef.current = Animated.loop(
+            Animated.sequence([
+              Animated.timing(flashAnim, { toValue: 0.15, duration: 350, useNativeDriver: true }),
+              Animated.timing(flashAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+            ])
+          );
+          flashAnimationRef.current.start();
+        }
         startFollowingUserLocation();
         restoreEventData();
         // Resume recovery: grab an immediate one-shot fix when app returns to foreground.
@@ -947,7 +1079,7 @@ const syncPendingCheckpoints = async () => {
                   isProgrammaticMove.current = false;
                 }
               }
-              checkProximityToCheckpoints(smoothed.latitude, smoothed.longitude);
+              checkProximityToCheckpoints(smoothed.latitude, smoothed.longitude, accuracy);
             },
             () => {},
             GEO_HIGH_ACCURACY_OPTS
@@ -1012,11 +1144,50 @@ const syncPendingCheckpoints = async () => {
 
       const id = Geolocation.watchPosition(
         (position) => {
+          // 🛠️ DEBUG — first fix only
+          if (!debugFirstFixShownRef.current) {
+            debugFirstFixShownRef.current = true;
+            showCenterToast(`[GPS-FIX] accuracy:${Math.round(position.coords.accuracy)}m speed:${Math.round((position.coords.speed || 0) * 3.6)}kmh`, 'info', 3000);
+          }
           // Drop low-quality fixes — satellite lag causes off-road jumps above 25m accuracy.
-          if (position.coords.accuracy > 25) return;
+          if (position.coords.accuracy > 25) {
+            // 🛠️ DEBUG
+            showCenterToast(`[GPS-DROP] accuracy ${Math.round(position.coords.accuracy)}m > 25m`, 'warning', 3000);
+            return;
+          }
           const { latitude, longitude, heading, accuracy } = position.coords;
           const previousRaw = previousRawLocationRef.current || { latitude, longitude };
+
+          // 🛠️ DEBUG — off-road diagnosis
+          const rawJump = getDistanceFromLatLonInMeters(
+            previousRaw.latitude, previousRaw.longitude, latitude, longitude
+          );
+          if (rawJump > 50) {
+            // Big GPS jump — likely cause of off-road
+            showCenterToast(
+              `[OFF-ROAD⚠️] Raw jump ${Math.round(rawJump)}m in 1 tick! acc:${Math.round(accuracy)}m — smoother applying heavy correction`,
+              'error', 3000
+            );
+          } else if (rawJump > 20) {
+            showCenterToast(
+              `[GPS-JUMP] ${Math.round(rawJump)}m jump detected | acc:${Math.round(accuracy)}m`,
+              'warning', 3000
+            );
+          }
+
           const smoothedLocation = smoothGPSCoordinates(latitude, longitude, accuracy);
+
+          // 🛠️ DEBUG — how much did smoother correct?
+          const smoothCorrection = getDistanceFromLatLonInMeters(
+            smoothedLocation.latitude, smoothedLocation.longitude, latitude, longitude
+          );
+          if (smoothCorrection > 15) {
+            showCenterToast(
+              `[SMOOTH-CORRECTION] ${Math.round(smoothCorrection)}m correction applied | raw→smooth`,
+              'warning', 3000
+            );
+          }
+
           setUserRoute((prev) => [...prev, smoothedLocation]);
           setLastUserLocation(smoothedLocation);
           let newHeading = userHeading;
@@ -1065,7 +1236,7 @@ const syncPendingCheckpoints = async () => {
             }
           }
           
-          checkProximityToCheckpoints(smoothedLocation.latitude, smoothedLocation.longitude);
+          checkProximityToCheckpoints(smoothedLocation.latitude, smoothedLocation.longitude, accuracy);
           // ✅ FIX: isFollowingUser state yahan SET mat karo — stale closure se dobara ON ho jaata tha
         },
         (error) => {
@@ -1078,6 +1249,8 @@ const syncPendingCheckpoints = async () => {
         },
         GEO_HIGH_ACCURACY_OPTS
       );
+      // 🛠️ DEBUG
+      showCenterToast(`[GPS-WATCH] Started watchId:${id}`, 'info', 3000);
       setWatchId(id);
     });
   };
@@ -1286,7 +1459,7 @@ const syncPendingCheckpoints = async () => {
         toolbarEnabled={false}
       >
         {lastUserLocation && (
-          <UserCarMarker coordinate={lastUserLocation} heading={userHeading} />
+          <UserCarMarker coordinate={lastUserLocation} heading={userHeading} speed={currentSpeed} />
         )}
         {checkpoints.map((cp) => (
           <CheckpointPin

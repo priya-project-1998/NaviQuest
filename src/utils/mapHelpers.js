@@ -146,9 +146,15 @@ export const createGpsSmoother = ({ smoothingFactor = 0.3, minAccuracy = 30 } = 
     //  - Decent fix (<20m accuracy): in between (0.45).
     //  - Otherwise: use the configured default.
     let factor = smoothingFactor;
-    if (distanceFromSmoothed > 50) factor = 0.1;
-    else if (accuracy && accuracy < 10) factor = 0.6;
-    else if (accuracy && accuracy < 20) factor = 0.45;
+    let factorReason = 'default';
+    if (distanceFromSmoothed > 50) { factor = 0.1; factorReason = 'BIG-JUMP(>50m)'; }
+    else if (accuracy && accuracy < 15) { factor = 0.5; factorReason = 'HIGH-ACCURACY(<15m)'; }
+    else if (accuracy && accuracy > 25) { factor = 0.1; factorReason = 'POOR-ACCURACY(>25m)'; }
+
+    // 🛠️ DEBUG — log when smoother applies heavy correction (off-road diagnosis)
+    if (distanceFromSmoothed > 20 || factor === 0.1) {
+      console.log(`[SMOOTHER] dist:${Math.round(distanceFromSmoothed)}m factor:${factor} reason:${factorReason} acc:${Math.round(accuracy||0)}m`);
+    }
 
     // Standard EMA blend in lat/lng space — fine at the small distances we care about.
     smoothed = {

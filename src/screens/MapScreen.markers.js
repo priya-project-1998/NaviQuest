@@ -1,37 +1,88 @@
 // Marker components rendered inside MapScreen's <MapView>.
 // Kept here so the main file isn't dominated by per-pixel View layouts.
 
-import React from "react";
-import { View, Platform } from "react-native";
-import { Marker } from "react-native-maps";
+import React, { useRef, useEffect } from "react";
+import { View, Animated } from "react-native";
+import { Marker, AnimatedRegion } from "react-native-maps";
 import styles from "./MapScreen.styles";
 import { getMarkerColorByPoint } from "../utils/mapHelpers";
 
-// Red car marker for the user's live location. `rotation` faces direction of travel
-// so the car points where the participant is moving (works the same on iOS & Android
-// when `flat={true}`).
-export const UserCarMarker = ({ coordinate, heading }) => (
-  <Marker
-    coordinate={coordinate}
-    title="📍 My Location"
-    description="Your current position"
-    anchor={{ x: 0.5, y: 0.5 }}
-    flat
-    rotation={heading}
-  >
-    <View style={carStyles.frame}>
-      <View style={carStyles.body}>
-        <View style={carStyles.frontBumper} />
-        <View style={carStyles.frontWindshield} />
-        <View style={carStyles.mirrorLeft} />
-        <View style={carStyles.mirrorRight} />
-        <View style={carStyles.mainBody} />
-        <View style={carStyles.rearWindshield} />
-        <View style={carStyles.rearBumper} />
-      </View>
-    </View>
-  </Marker>
-);
+// Red car marker for the user's live location.
+// Uses AnimatedRegion so GPS ticks slide the marker instead of teleporting it.
+// Uses Animated.Value for rotation so heading changes animate smoothly with
+// correct wrap-around handling at the 0/360 boundary.
+export const UserCarMarker = React.memo(({ coordinate, heading, speed = 0 }) => {
+  // Created once per mount — AnimatedRegion owns the live lat/lng for the marker.
+  const animatedCoord = useRef(
+    new AnimatedRegion({
+      latitude: coordinate.latitude,
+      longitude: coordinate.longitude,
+      latitudeDelta: 0,
+      longitudeDelta: 0,
+    })
+  ).current;
+
+  // Accumulated rotation value (may exceed 0-360 to avoid wrap-around snapping).
+  const rotationAnim = useRef(new Animated.Value(heading || 0)).current;
+  // Tracks the accumulated value so we can compute the shortest-arc delta.
+  const prevHeadingRef = useRef(heading || 0);
+
+  // Animate marker position on each GPS tick — no more teleporting.
+  // animatedCoord.timing works cross-platform (JS-driven, no native-ref needed).
+  useEffect(() => {
+    animatedCoord.timing({
+      latitude: coordinate.latitude,
+      longitude: coordinate.longitude,
+      duration: 400,
+      useNativeDriver: false,
+    }).start();
+  }, [coordinate.latitude, coordinate.longitude]);
+
+  // Animate rotation on heading change. Computes shortest arc so the car
+  // never spins the long way round at the 0↔360 boundary.
+  // Skip when stationary (<1 km/h) — prevents random 360° resets at standstill.
+  useEffect(() => {
+    if (speed < 1) return;
+    const toValue = heading || 0;
+    const prev = prevHeadingRef.current;
+    let diff = toValue - prev;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    const target = prev + diff;
+    Animated.timing(rotationAnim, { toValue: target, duration: 300, useNativeDriver: true }).start();
+    prevHeadingRef.current = target;
+  }, [heading]);
+
+  const rotate = rotationAnim.interpolate({
+    inputRange: [-720, 0, 720],
+    outputRange: ['-720deg', '0deg', '720deg'],
+    extrapolate: 'extend',
+  });
+
+  return (
+    <Marker.Animated
+      coordinate={animatedCoord}
+      title="📍 My Location"
+      description="Your current position"
+      anchor={{ x: 0.5, y: 0.5 }}
+      flat
+    >
+      <Animated.View style={{ transform: [{ rotate }] }}>
+        <View style={carStyles.frame}>
+          <View style={carStyles.body}>
+            <View style={carStyles.frontBumper} />
+            <View style={carStyles.frontWindshield} />
+            <View style={carStyles.mirrorLeft} />
+            <View style={carStyles.mirrorRight} />
+            <View style={carStyles.mainBody} />
+            <View style={carStyles.rearWindshield} />
+            <View style={carStyles.rearBumper} />
+          </View>
+        </View>
+      </Animated.View>
+    </Marker.Animated>
+  );
+});
 
 // One pin per event checkpoint. The color comes from `checkpoint_point` (mapped via
 // getMarkerColorByPoint) and flips to blue once the participant has completed it
