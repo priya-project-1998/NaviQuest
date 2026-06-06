@@ -359,7 +359,15 @@ export default function EventStartScreen({ navigation, route }) {
               {status.message === "Status Unknown" ? `Event starts in: ${formatTime(timeLeft)}` : status.message}
             </Text>
           )}
-
+          <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                  handleStartEvent();
+                
+              }}
+            >
+              <Text style={styles.startBtnTextIntegrated}>START</Text>
+            </TouchableOpacity>
           {/* Start Button - Only show if event is not completed */}
           {!isEventCompleted && (
             <TouchableOpacity

@@ -1,88 +1,101 @@
 // Marker components rendered inside MapScreen's <MapView>.
 // Kept here so the main file isn't dominated by per-pixel View layouts.
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useImperativeHandle } from "react";
 import { View, Animated } from "react-native";
 import { Marker, AnimatedRegion } from "react-native-maps";
 import styles from "./MapScreen.styles";
 import { getMarkerColorByPoint } from "../utils/mapHelpers";
 
-// Red car marker for the user's live location.
-// Uses AnimatedRegion so GPS ticks slide the marker instead of teleporting it.
-// Uses Animated.Value for rotation so heading changes animate smoothly with
-// correct wrap-around handling at the 0/360 boundary.
-export const UserCarMarker = React.memo(({ coordinate, heading, speed = 0 }) => {
-  // Created once per mount — AnimatedRegion owns the live lat/lng for the marker.
-  const animatedCoord = useRef(
-    new AnimatedRegion({
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-      latitudeDelta: 0,
-      longitudeDelta: 0,
-    })
-  ).current;
+// Smooth car marker driven entirely via ref.updatePosition() — never re-renders from
+// parent state so GPS ticks cannot interrupt an in-progress animation.
+// React.memo second arg `() => true` ensures the component is mounted once and
+// stays alive regardless of what MapScreen re-renders (speed HUD, timer, overspeed, etc.).
+export const UserCarMarker = React.memo(
+  React.forwardRef(({ initialCoordinate }, ref) => {
+    // AnimatedRegion is the native bridge for smooth lat/lng transitions.
+    // Created once at mount from the first valid GPS fix.
+    const animatedCoord = useRef(
+      new AnimatedRegion({
+        latitude: initialCoordinate.latitude,
+        longitude: initialCoordinate.longitude,
+        latitudeDelta: 0,
+        longitudeDelta: 0,
+      })
+    ).current;
 
-  // Accumulated rotation value (may exceed 0-360 to avoid wrap-around snapping).
-  const rotationAnim = useRef(new Animated.Value(heading || 0)).current;
-  // Tracks the accumulated value so we can compute the shortest-arc delta.
-  const prevHeadingRef = useRef(heading || 0);
+    // Accumulated rotation — may exceed ±360 to avoid wrap-around snapping.
+    const rotationAnim = useRef(new Animated.Value(0)).current;
+    // Tracks accumulated value so each tick applies the correct shortest-arc delta.
+    const prevHeadingRef = useRef(0);
 
-  // Animate marker position on each GPS tick — no more teleporting.
-  // animatedCoord.timing works cross-platform (JS-driven, no native-ref needed).
-  useEffect(() => {
-    animatedCoord.timing({
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-      duration: 400,
-      useNativeDriver: false,
-    }).start();
-  }, [coordinate.latitude, coordinate.longitude]);
+    // Expose imperative API so the GPS watch can push updates without going through
+    // React state → parent render → child render cycle.
+    useImperativeHandle(ref, () => ({
+      updatePosition: (lat, lng, heading, speed) => {
+        // Position: constant 400 ms so smoothness is speed-agnostic.
+        animatedCoord.timing({
+          latitude: lat,
+          longitude: lng,
+          duration: 400,
+          useNativeDriver: false,
+        }).start();
 
-  // Animate rotation on heading change. Computes shortest arc so the car
-  // never spins the long way round at the 0↔360 boundary.
-  // Skip when stationary (<1 km/h) — prevents random 360° resets at standstill.
-  useEffect(() => {
-    if (speed < 1) return;
-    const toValue = heading || 0;
-    const prev = prevHeadingRef.current;
-    let diff = toValue - prev;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
-    const target = prev + diff;
-    Animated.timing(rotationAnim, { toValue: target, duration: 300, useNativeDriver: true }).start();
-    prevHeadingRef.current = target;
-  }, [heading]);
+        // Skip heading at standstill — GPS heading is junk below ~1 km/h and
+        // resetting it to 0 (north) is what causes the "tedi" snap.
+        if (speed < 1) return;
 
-  const rotate = rotationAnim.interpolate({
-    inputRange: [-720, 0, 720],
-    outputRange: ['-720deg', '0deg', '720deg'],
-    extrapolate: 'extend',
-  });
+        // Shortest-arc delta with 75°/tick cap — prevents sudden 90° snaps from
+        // GPS multipath noise without causing visible lag on normal road curves.
+        const prev = prevHeadingRef.current;
+        const normalizedH = ((heading || 0) % 360 + 360) % 360;
+        const normalizedP = ((prev % 360) + 360) % 360;
+        let diff = normalizedH - normalizedP;
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        const clampedDiff = Math.max(-75, Math.min(75, diff));
+        const target = prev + clampedDiff;
 
-  return (
-    <Marker.Animated
-      coordinate={animatedCoord}
-      title="📍 My Location"
-      description="Your current position"
-      anchor={{ x: 0.5, y: 0.5 }}
-      flat
-    >
-      <Animated.View style={{ transform: [{ rotate }] }}>
-        <View style={carStyles.frame}>
-          <View style={carStyles.body}>
-            <View style={carStyles.frontBumper} />
-            <View style={carStyles.frontWindshield} />
-            <View style={carStyles.mirrorLeft} />
-            <View style={carStyles.mirrorRight} />
-            <View style={carStyles.mainBody} />
-            <View style={carStyles.rearWindshield} />
-            <View style={carStyles.rearBumper} />
+        Animated.timing(rotationAnim, {
+          toValue: target,
+          duration: 400, // match position duration — constant at any speed
+          useNativeDriver: true,
+        }).start();
+        prevHeadingRef.current = target;
+      },
+    }));
+
+    const rotate = rotationAnim.interpolate({
+      inputRange: [-720, 0, 720],
+      outputRange: ['-720deg', '0deg', '720deg'],
+      extrapolate: 'extend',
+    });
+
+    return (
+      <Marker.Animated
+        coordinate={animatedCoord}
+        anchor={{ x: 0.5, y: 0.5 }}
+        flat
+        tracksViewChanges={false}
+      >
+        <Animated.View style={{ transform: [{ rotate }] }}>
+          <View style={carStyles.frame}>
+            <View style={carStyles.body}>
+              <View style={carStyles.frontBumper} />
+              <View style={carStyles.frontWindshield} />
+              <View style={carStyles.mirrorLeft} />
+              <View style={carStyles.mirrorRight} />
+              <View style={carStyles.mainBody} />
+              <View style={carStyles.rearWindshield} />
+              <View style={carStyles.rearBumper} />
+            </View>
           </View>
-        </View>
-      </Animated.View>
-    </Marker.Animated>
-  );
-});
+        </Animated.View>
+      </Marker.Animated>
+    );
+  }),
+  () => true // never re-render from parent — all updates are imperative via ref
+);
 
 // One pin per event checkpoint. The color comes from `checkpoint_point` (mapped via
 // getMarkerColorByPoint) and flips to blue once the participant has completed it

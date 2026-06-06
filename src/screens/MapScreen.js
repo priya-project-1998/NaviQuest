@@ -33,7 +33,7 @@ const MapScreen = ({ route, navigation }) => {
   const [currentSpeed, setCurrentSpeed] = useState(0);
   const currentSpeedRef = useRef(0);
   const [modalVisible, setModalVisible] = useState(false);
-  const [userRoute, setUserRoute] = useState([]); // Track user route - real user movement path
+  const userRouteRef = useRef([]); // Track user route — ref avoids re-render on every GPS tick
   const [checkpointStatus, setCheckpointStatus] = useState({}); // { checkpoint_id: { time, completed } }
   // Live mirror of checkpointStatus — the once-created GPS watch reads this ref, not stale state.
   const checkpointStatusRef = useRef({});
@@ -86,6 +86,8 @@ const MapScreen = ({ route, navigation }) => {
   const lastSpeedProcessedTimestampRef = useRef(0);
   // 🛠️ DEBUG — remove before production
   const debugFirstFixShownRef = useRef(false);
+  const carMarkerRef = useRef(null); // imperative handle → push GPS updates without re-rendering the marker
+  const lastUserLocationRef = useRef(null); // current position for recenter — no re-renders
 
   useEffect(() => {
     if (!eventStartTimeRef.current) {
@@ -1066,8 +1068,10 @@ const syncPendingCheckpoints = async () => {
             (position) => {
               const { latitude, longitude, accuracy } = position.coords;
               const smoothed = smoothGPSCoordinates(latitude, longitude, accuracy);
+              lastUserLocationRef.current = smoothed;
               setLastUserLocation(smoothed);
-              setUserRoute((prev) => [...prev, smoothed]);
+              carMarkerRef.current?.updatePosition(smoothed.latitude, smoothed.longitude, 0, 0);
+              userRouteRef.current.push(smoothed);
               if (isFollowingUserRef.current && mapRef.current && !isUserTouchingMap.current) {
                 try {
                   isProgrammaticMove.current = true;
@@ -1162,6 +1166,14 @@ const syncPendingCheckpoints = async () => {
           const rawJump = getDistanceFromLatLonInMeters(
             previousRaw.latitude, previousRaw.longitude, latitude, longitude
           );
+          if (rawJump > 100) {
+            // GPS teleport noise (seen as 400m+ jumps in logs) — skip tick entirely
+            showCenterToast(
+              `[GPS-NOISE] ${Math.round(rawJump)}m teleport in 1 tick — discarded`,
+              'error', 3000
+            );
+            return;
+          }
           if (rawJump > 50) {
             // Big GPS jump — likely cause of off-road
             showCenterToast(
@@ -1188,8 +1200,11 @@ const syncPendingCheckpoints = async () => {
             );
           }
 
-          setUserRoute((prev) => [...prev, smoothedLocation]);
-          setLastUserLocation(smoothedLocation);
+          userRouteRef.current.push(smoothedLocation);
+          lastUserLocationRef.current = smoothedLocation;
+          if (!lastUserLocation) {
+            setLastUserLocation(smoothedLocation); // One-time: gates UserCarMarker conditional render
+          }
           let newHeading = userHeading;
           const distanceMoved = getDistanceFromLatLonInMeters(
             previousRaw.latitude, 
@@ -1214,6 +1229,17 @@ const syncPendingCheckpoints = async () => {
           }
           setUserHeading(newHeading);
           previousRawLocationRef.current = { latitude, longitude };
+          // Feed the marker imperatively — bypasses the React render cycle so the
+          // AnimatedRegion transition is never interrupted by parent state updates.
+          const markerSpeedKmh = typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)
+            ? Math.round(position.coords.speed * 3.6)
+            : 0;
+          carMarkerRef.current?.updatePosition(
+            smoothedLocation.latitude,
+            smoothedLocation.longitude,
+            newHeading,
+            markerSpeedKmh
+          );
           if (typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)) {
             const speedKmh = Math.round(position.coords.speed * 3.6);
             checkSpeedLimit(speedKmh);
@@ -1296,8 +1322,10 @@ const syncPendingCheckpoints = async () => {
             showCenterToast('Error centering map', 'error');
           }
         }
+        lastUserLocationRef.current = { latitude, longitude };
         setLastUserLocation({ latitude, longitude });
-        if (resetRoute) setUserRoute([{ latitude, longitude }]);
+        carMarkerRef.current?.updatePosition(latitude, longitude, 0, 0);
+        if (resetRoute) userRouteRef.current = [{ latitude, longitude }];
         // Always (re)start the GPS watch so live tracking is active from now on.
         startFollowingUserLocation();
         if (enableFollow) {
@@ -1459,7 +1487,7 @@ const syncPendingCheckpoints = async () => {
         toolbarEnabled={false}
       >
         {lastUserLocation && (
-          <UserCarMarker coordinate={lastUserLocation} heading={userHeading} speed={currentSpeed} />
+          <UserCarMarker ref={carMarkerRef} initialCoordinate={lastUserLocation} />
         )}
         {checkpoints.map((cp) => (
           <CheckpointPin
@@ -1490,7 +1518,8 @@ const syncPendingCheckpoints = async () => {
           borderColor: isFollowingUser ? '#2196F3' : '#E0E0E0',
         }}
         onPress={() => {
-          if (lastUserLocation && mapRef.current) {
+          const currentPos = lastUserLocationRef.current || lastUserLocation;
+          if (currentPos && mapRef.current) {
             try {
               isProgrammaticMove.current = true;
               isUserTouchingMap.current = false;
@@ -1499,8 +1528,8 @@ const syncPendingCheckpoints = async () => {
               userManualZoomRef.current = { latitudeDelta: 0.0006, longitudeDelta: 0.0006 };
               mapRef.current.animateCamera({
                 center: {
-                  latitude: lastUserLocation.latitude,
-                  longitude: lastUserLocation.longitude,
+                  latitude: currentPos.latitude,
+                  longitude: currentPos.longitude,
                 },
                 zoom: 20,
                 heading: userHeading,
@@ -1573,7 +1602,8 @@ const syncPendingCheckpoints = async () => {
           style={styles.tabItem}
           onPress={() => {
             if (isFollowingUser) {
-              if (lastUserLocation && mapRef.current) {
+              const currentPos = lastUserLocationRef.current || lastUserLocation;
+              if (currentPos && mapRef.current) {
                 try {
                   isProgrammaticMove.current = true;
                   isUserTouchingMap.current = false;
@@ -1581,8 +1611,8 @@ const syncPendingCheckpoints = async () => {
                   mapRef.current.animateCamera(
                     {
                       center: {
-                        latitude: lastUserLocation.latitude,
-                        longitude: lastUserLocation.longitude,
+                        latitude: currentPos.latitude,
+                        longitude: currentPos.longitude,
                       },
                       zoom: currentZoomLevelRef.current,
                     },
