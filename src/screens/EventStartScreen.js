@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, SafeAreaView, StatusBar, BackHandler } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, PermissionsAndroid, Linking, SafeAreaView, StatusBar, BackHandler } from "react-native";
+import Geolocation from "react-native-geolocation-service";
+import { useCenterToast } from "../hooks/useCenterToast";
+import { getDistanceFromLatLonInMeters } from "../utils/mapHelpers";
+import { getCompletedCheckpointsForEvent } from "../services/dbService";
 import { useFocusEffect } from "@react-navigation/native";
 import LinearGradient from "react-native-linear-gradient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -54,6 +58,8 @@ export default function EventStartScreen({ navigation, route }) {
   const [eventConfig, setEventConfig] = useState(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState(null);
+
+  const { show: showCenterToast, Toast } = useCenterToast();
 
   // ✅ Check if event is already completed or aborted on mount
   useEffect(() => {
@@ -180,6 +186,87 @@ export default function EventStartScreen({ navigation, route }) {
   const handleStartEvent = async () => {
     setStartPressed(true);
     setStartMessage(`Event will be start in ${formatTime(timeLeft)}`);
+
+    // Resume check: user already hit checkpoints → skip all radius checks
+    const isResume = await new Promise((resolve) => {
+      getCompletedCheckpointsForEvent(String(eventId), (completed) => {
+        resolve(Array.isArray(completed) && completed.length > 0);
+      });
+    });
+
+    if (!isResume) {
+      const apiLat = parseFloat(eventConfig?.latitude);
+      const apiLng = parseFloat(eventConfig?.longitude);
+      const radiusMeters = Number(eventConfig?.start_gps_accuracy) || 200;
+
+      if (!isNaN(apiLat) && !isNaN(apiLng)) {
+        // Ask permission if needed (no dialog if already granted)
+        let permissionGranted = false;
+        if (Platform.OS === 'android') {
+          const result = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            {
+              title: "Location Permission",
+              message: "Location access is required to verify your position at the start venue.",
+              buttonPositive: "Allow",
+              buttonNegative: "Cancel",
+            }
+          );
+          permissionGranted = result === PermissionsAndroid.RESULTS.GRANTED;
+        } else {
+          const status = await Geolocation.requestAuthorization('whenInUse');
+          permissionGranted = status === 'granted';
+        }
+
+        if (!permissionGranted) {
+          Alert.alert(
+            "Location Permission Required",
+            "Allow location access to start the rally. If you denied permanently, enable it from Settings.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ]
+          );
+          return;
+        }
+
+        // Get current location
+        let position;
+        try {
+          position = await new Promise((resolve, reject) => {
+            Geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 5000,
+            });
+          });
+        } catch (_err) {
+          showCenterToast(
+            "GPS is unavailable. Please turn on location services and try again.",
+            "error"
+          );
+          return;
+        }
+
+        // Radius check
+        const distance = getDistanceFromLatLonInMeters(
+          position.coords.latitude,
+          position.coords.longitude,
+          apiLat,
+          apiLng
+        );
+
+        if (distance > radiusMeters) {
+          showCenterToast(
+            "You are not at the starting venue radius! Please move closer to the start point.",
+            "warning"
+          );
+          return;
+        }
+      }
+    }
+
+    // All checks passed — proceed with existing logic
     // ✅ Reset abort flag when starting event normally
     await AsyncStorage.removeItem(`event_${eventId}_aborted`);
     console.log(`✅ Abort flag reset for event ${eventId}`);
@@ -214,7 +301,6 @@ export default function EventStartScreen({ navigation, route }) {
         event_end_date: eventEndDate, // Pass end date
         event_name: eventName, // Pass event name for reference
         duration: duration // Pass duration from config to MapScreen
-
       });
     } else {
       Alert.alert('Error', 'Failed to fetch checkpoints. Please try again.');
@@ -444,6 +530,7 @@ export default function EventStartScreen({ navigation, route }) {
         {/* Motivation */}
         <Text style={styles.startInfo}>Click Only When Asked To Take Start</Text>
       </ScrollView>
+      <Toast />
       </SafeAreaView>
     </LinearGradient>
   );
