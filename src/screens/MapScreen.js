@@ -78,7 +78,9 @@ const MapScreen = ({ route, navigation }) => {
   const smoothGPSCoordinatesRef = useRef(createGpsSmoother({ smoothingFactor: 0.3, minAccuracy: 30 }));
   const smoothGPSCoordinates = (lat, lng, acc) => smoothGPSCoordinatesRef.current(lat, lng, acc);
   const lastValidHeadingRef = useRef(0); // Stores last valid heading for rotation
+  const smoothedHeadingRef = useRef(null); // EMA of heading to reduce tedi/tilt from GPS noise
   const previousRawLocationRef = useRef(null);
+  const previousSmoothedLocationRef = useRef(null);
   const MIN_DISTANCE_FOR_HEADING = 1;
   const isCurrentlyOverspeedRef = useRef(false); // Whether currently in overspeed state (for edge detection)
   const speedHistoryRef = useRef([]); // Rolling window of recent speed readings
@@ -1207,28 +1209,45 @@ const syncPendingCheckpoints = async () => {
           }
           let newHeading = userHeading;
           const distanceMoved = getDistanceFromLatLonInMeters(
-            previousRaw.latitude, 
-            previousRaw.longitude, 
-            latitude, 
+            previousRaw.latitude,
+            previousRaw.longitude,
+            latitude,
             longitude
           );
-          
+
+          const prevSmoothed = previousSmoothedLocationRef.current;
+          const smoothedDistanceMoved = prevSmoothed
+            ? getDistanceFromLatLonInMeters(prevSmoothed.latitude, prevSmoothed.longitude, smoothedLocation.latitude, smoothedLocation.longitude)
+            : 0;
+
           if (typeof heading === 'number' && !isNaN(heading) && heading > 0) {
             newHeading = heading;
             lastValidHeadingRef.current = heading;
-          } else if (distanceMoved >= MIN_DISTANCE_FOR_HEADING) {
+          } else if (prevSmoothed && smoothedDistanceMoved >= MIN_DISTANCE_FOR_HEADING) {
             newHeading = calculateBearing(
-              previousRaw.latitude, 
-              previousRaw.longitude, 
-              latitude,
-              longitude
+              prevSmoothed.latitude,
+              prevSmoothed.longitude,
+              smoothedLocation.latitude,
+              smoothedLocation.longitude
             );
             lastValidHeadingRef.current = newHeading;
           } else {
             newHeading = lastValidHeadingRef.current;
           }
+          // EMA smooth the heading to kill GPS jitter that makes car look "tedi".
+          // Shortest-arc blend handles 0/360 wraparound correctly.
+          if (smoothedHeadingRef.current === null) {
+            smoothedHeadingRef.current = newHeading;
+          } else {
+            let hdiff = newHeading - smoothedHeadingRef.current;
+            if (hdiff > 180) hdiff -= 360;
+            if (hdiff < -180) hdiff += 360;
+            smoothedHeadingRef.current = ((smoothedHeadingRef.current + 0.4 * hdiff) + 360) % 360;
+          }
+          newHeading = smoothedHeadingRef.current;
           setUserHeading(newHeading);
           previousRawLocationRef.current = { latitude, longitude };
+          previousSmoothedLocationRef.current = smoothedLocation;
           // Feed the marker imperatively — bypasses the React render cycle so the
           // AnimatedRegion transition is never interrupted by parent state updates.
           const markerSpeedKmh = typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, PermissionsAndroid, Linking, SafeAreaView, StatusBar, BackHandler } from "react-native";
 import Geolocation from "react-native-geolocation-service";
-import { useCenterToast } from "../hooks/useCenterToast";
 import { getDistanceFromLatLonInMeters } from "../utils/mapHelpers";
 import { getCompletedCheckpointsForEvent } from "../services/dbService";
 import { useFocusEffect } from "@react-navigation/native";
@@ -59,7 +58,6 @@ export default function EventStartScreen({ navigation, route }) {
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState(null);
 
-  const { show: showCenterToast, Toast } = useCenterToast();
 
   // ✅ Check if event is already completed or aborted on mount
   useEffect(() => {
@@ -121,26 +119,28 @@ export default function EventStartScreen({ navigation, route }) {
   const gpsAccuracyDisplay = eventConfig?.gps_accuracy ? `${eventConfig.gps_accuracy} Meters` : (event.gpsAccuracy || 'N/A');
 
   useEffect(() => {
-    const eventDateTime = eventStartDate !== 'Start Date N/A' ? new Date(eventStartDate) : new Date();
+    const parsedStartDate = eventStartDate !== 'Start Date N/A'
+      ? eventStartDate.replace(' ', 'T')
+      : null;
+    const eventDateTime = parsedStartDate ? new Date(parsedStartDate) : new Date();
     const updateTimer = () => {
       const now = new Date();
       const diff = eventDateTime - now;
       setTimeLeft(diff > 0 ? diff : 0);
       setTimerActive(diff > 0);
-      
-      // Check if current date matches event start date and time >= flag off time
+
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth();
       const currentDay = now.getDate();
-      
+
       const eventYear = eventDateTime.getFullYear();
       const eventMonth = eventDateTime.getMonth();
       const eventDay = eventDateTime.getDate();
-      
+
       const isSameDate = (currentYear === eventYear && currentMonth === eventMonth && currentDay === eventDay);
-      
+
       let canStart = false;
-     
+
       if (isSameDate && flagOffDisplay && flagOffDisplay !== 'N/A' && flagOffDisplay.trim() !== '') {
         const flagOffMatch = flagOffDisplay.match(/(\d{1,2}):(\d{2})/);
         if (flagOffMatch) {
@@ -148,13 +148,13 @@ export default function EventStartScreen({ navigation, route }) {
           const flagOffMinutes = parseInt(flagOffMatch[2], 10);
           const currentHours = now.getHours();
           const currentMinutes = now.getMinutes();
-                
+
           if (currentHours > flagOffHours || (currentHours === flagOffHours && currentMinutes >= flagOffMinutes)) {
             canStart = true;
           }
         }
       }
-      
+
       setCanStartEvent(canStart);
     };
     updateTimer();
@@ -187,7 +187,6 @@ export default function EventStartScreen({ navigation, route }) {
     setStartPressed(true);
     setStartMessage(`Event will be start in ${formatTime(timeLeft)}`);
 
-    // Resume check: user already hit checkpoints → skip all radius checks
     const isResume = await new Promise((resolve) => {
       getCompletedCheckpointsForEvent(String(eventId), (completed) => {
         resolve(Array.isArray(completed) && completed.length > 0);
@@ -200,7 +199,6 @@ export default function EventStartScreen({ navigation, route }) {
       const radiusMeters = Number(eventConfig?.start_gps_accuracy) || 200;
 
       if (!isNaN(apiLat) && !isNaN(apiLng)) {
-        // Ask permission if needed (no dialog if already granted)
         let permissionGranted = false;
         if (Platform.OS === 'android') {
           const result = await PermissionsAndroid.request(
@@ -230,7 +228,6 @@ export default function EventStartScreen({ navigation, route }) {
           return;
         }
 
-        // Get current location
         let position;
         try {
           position = await new Promise((resolve, reject) => {
@@ -241,14 +238,14 @@ export default function EventStartScreen({ navigation, route }) {
             });
           });
         } catch (_err) {
-          showCenterToast(
-            "GPS is unavailable. Please turn on location services and try again.",
-            "error"
+          Alert.alert(
+            "GPS Unavailable",
+            "Could not get your location. Please enable location services and try again.",
+            [{ text: "OK" }]
           );
           return;
         }
 
-        // Radius check
         const distance = getDistanceFromLatLonInMeters(
           position.coords.latitude,
           position.coords.longitude,
@@ -257,9 +254,10 @@ export default function EventStartScreen({ navigation, route }) {
         );
 
         if (distance > radiusMeters) {
-          showCenterToast(
-            "You are not at the starting venue radius! Please move closer to the start point.",
-            "warning"
+          Alert.alert(
+            "Wrong Location",
+            `You are ${Math.round(distance)} m away from the start venue. Move within ${radiusMeters} m to begin.`,
+            [{ text: "OK" }]
           );
           return;
         }
@@ -445,15 +443,6 @@ export default function EventStartScreen({ navigation, route }) {
               {status.message === "Status Unknown" ? `Event starts in: ${formatTime(timeLeft)}` : status.message}
             </Text>
           )}
-          <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => {
-                  handleStartEvent();
-                
-              }}
-            >
-              <Text style={styles.startBtnTextIntegrated}>START</Text>
-            </TouchableOpacity>
           {/* Start Button - Only show if event is not completed */}
           {!isEventCompleted && (
             <TouchableOpacity
@@ -530,7 +519,6 @@ export default function EventStartScreen({ navigation, route }) {
         {/* Motivation */}
         <Text style={styles.startInfo}>Click Only When Asked To Take Start</Text>
       </ScrollView>
-      <Toast />
       </SafeAreaView>
     </LinearGradient>
   );
@@ -778,9 +766,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 4,
     letterSpacing: 0.3,
-  },
-  startBtnDisabled: {
-    opacity: 0.5,
   },
   statusPending: {
     color: '#185a9d',

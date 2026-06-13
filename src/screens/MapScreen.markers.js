@@ -33,11 +33,12 @@ export const UserCarMarker = React.memo(
     // React state → parent render → child render cycle.
     useImperativeHandle(ref, () => ({
       updatePosition: (lat, lng, heading, speed) => {
-        // Position: constant 400 ms so smoothness is speed-agnostic.
+        // Position: 900ms so the animation is always mid-flight when the next GPS
+        // tick arrives — marker continuously glides toward latest fix instead of stepping.
         animatedCoord.timing({
           latitude: lat,
           longitude: lng,
-          duration: 400,
+          duration: 900,
           useNativeDriver: false,
         }).start();
 
@@ -58,7 +59,7 @@ export const UserCarMarker = React.memo(
 
         Animated.timing(rotationAnim, {
           toValue: target,
-          duration: 400, // match position duration — constant at any speed
+          duration: 900, // match position duration — constant at any speed
           useNativeDriver: true,
         }).start();
         prevHeadingRef.current = target;
