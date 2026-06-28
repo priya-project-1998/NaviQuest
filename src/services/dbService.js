@@ -168,17 +168,21 @@ export const clearCheckpointsForEvent = (event_id) => {
 
 // ✅ Get all completed checkpoints for a specific event
 export const getCompletedCheckpointsForEvent = (event_id, callback) => {
-  db.transaction(tx => {
-    tx.executeSql(
-      `SELECT * FROM checkpoints WHERE event_id = ? AND status = 'completed'`,
-      [event_id],
-      (txObj, results) => {
-        const temp = [];
-        for (let i = 0; i < results.rows.length; ++i) {
-          temp.push(results.rows.item(i));
-        }
-        callback(temp);
-      }
-    );
-  });
+  db.transaction(
+    tx => {
+      tx.executeSql(
+        `SELECT * FROM checkpoints WHERE event_id = ? AND status = 'completed'`,
+        [event_id],
+        (txObj, results) => {
+          const temp = [];
+          for (let i = 0; i < results.rows.length; ++i) {
+            temp.push(results.rows.item(i));
+          }
+          callback(temp);
+        },
+        (_txObj, _err) => { callback([]); return false; }
+      );
+    },
+    _err => { callback([]); }
+  );
 };

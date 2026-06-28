@@ -75,17 +75,17 @@ const MapScreen = ({ route, navigation }) => {
   const eventStartTimeRef = useRef(null);
   const syncingCheckpointsRef = useRef(new Set());
   const eventEndTimestamp = useRef(null);
-  const smoothGPSCoordinatesRef = useRef(createGpsSmoother({ smoothingFactor: 0.3, minAccuracy: 30 }));
+  const smoothGPSCoordinatesRef = useRef(createGpsSmoother({ smoothingFactor: 0.1, minAccuracy: 20 }));
   const smoothGPSCoordinates = (lat, lng, acc) => smoothGPSCoordinatesRef.current(lat, lng, acc);
   const lastValidHeadingRef = useRef(0); // Stores last valid heading for rotation
+  const smoothedHeadingRef = useRef(null); // EMA of heading to reduce tedi/tilt from GPS noise
   const previousRawLocationRef = useRef(null);
+  const previousSmoothedLocationRef = useRef(null);
   const MIN_DISTANCE_FOR_HEADING = 1;
   const isCurrentlyOverspeedRef = useRef(false); // Whether currently in overspeed state (for edge detection)
   const speedHistoryRef = useRef([]); // Rolling window of recent speed readings
   const SPEED_HISTORY_SIZE = 3; // Number of readings to average (smooths out spikes)
   const lastSpeedProcessedTimestampRef = useRef(0);
-  // 🛠️ DEBUG — remove before production
-  const debugFirstFixShownRef = useRef(false);
   const carMarkerRef = useRef(null); // imperative handle → push GPS updates without re-rendering the marker
   const lastUserLocationRef = useRef(null); // current position for recenter — no re-renders
 
@@ -148,9 +148,6 @@ const MapScreen = ({ route, navigation }) => {
       eventEndTimestamp.current = endTs;
       const remainingSec = Math.max(0, Math.floor((endTs - now) / 1000));
       setRemainingSeconds(remainingSec);
-      // 🛠️ DEBUG
-      const isResumed = !!(await AsyncStorage.getItem(key).catch(() => null));
-      showCenterToast(`[TIMER] duration:${duration} | totalSec:${totalSeconds} | remaining:${remainingSec}s | resumed:${isResumed}`, 'info', 3000);
       setTimerReady(true); // ref is now populated → triggers the countdown interval effect to (re-)run and start ticking.
     })();
   }, [duration, event_id]);
@@ -173,8 +170,6 @@ const MapScreen = ({ route, navigation }) => {
 
   useEffect(() => {
     if (event_id) {
-      // 🛠️ DEBUG
-      showCenterToast(`[RESTORE-START] Loading saved checkpoints from DB for event:${event_id}`, 'info', 3000);
       getCompletedCheckpointsForEvent(event_id, (completedCheckpoints) => {
         const previousCheckpointStatus = {};
         const restoredMarkerColors = {};
@@ -197,12 +192,6 @@ const MapScreen = ({ route, navigation }) => {
           checkpointStatusRef.current = previousCheckpointStatus; // sync ref now so the watch sees restored state on its first tick
           setCheckpointStatus(previousCheckpointStatus);
           setMarkerColors((prev) => ({ ...prev, ...restoredMarkerColors }));
-          // 🛠️ DEBUG
-          const names = completedCheckpoints.map(c => c.checkpoint_name).join(', ');
-          showCenterToast(`[RESTORE-OK] ${completedCheckpoints.length} checkpoints restored: ${names}`, 'success', 3000);
-        } else {
-          // 🛠️ DEBUG
-          showCenterToast(`[RESTORE-EMPTY] No saved checkpoints found in DB for this event`, 'warning', 3000);
         }
       });
     }
@@ -244,8 +233,6 @@ const MapScreen = ({ route, navigation }) => {
   useEffect(() => {
   if (speed_limit && speed_limit !== speedLimit) {
     setSpeedLimit(speed_limit);
-    // 🛠️ DEBUG
-    showCenterToast(`[SPEED-LIMIT] Set from API: ${speed_limit} km/h`, 'info', 3000);
   }
 }, [speed_limit]);
 
@@ -263,8 +250,6 @@ useEffect(() => {
       return; // Pehli call ignore — yeh sirf current state read hai, actual change nahi
     }
     if (state.isConnected) {
-      // 🛠️ DEBUG
-      showCenterToast(`[NET-RECONNECT] Internet back — triggering pending sync`, 'info', 3000);
       await syncPendingCheckpoints();
     }
   });
@@ -276,13 +261,9 @@ const syncPendingCheckpoints = async () => {
   try {
     let pending = await getPendingCheckpoints();
     if (!Array.isArray(pending)) pending = [];
-    // 🛠️ DEBUG
-    showCenterToast(`[PENDING-SYNC] Found ${pending.length} checkpoint(s) to sync`, 'info', 3000);
     if (pending.length === 0) return;
     const token = await AsyncStorage.getItem('authToken');
     if (!token) {
-      // 🛠️ DEBUG
-      showCenterToast(`[PENDING-SYNC] No auth token — aborting sync`, 'error', 3000);
       return;
     }
     let successCount = 0;
@@ -378,13 +359,9 @@ const syncPendingCheckpoints = async () => {
           successCount++;
         } else {
           failCount++;
-          // 🛠️ DEBUG
-          showCenterToast(`[SYNC-FAIL] HTTP:${res.status} | ${data?.status} | ${data?.message || '?'}`, 'error', 3000);
         }
       } catch (err) {
         failCount++;
-        // 🛠️ DEBUG
-        showCenterToast(`[SYNC-ERR] ${err?.message || String(err)}`, 'error', 3000);
       }
     }
 
@@ -522,8 +499,6 @@ const syncPendingCheckpoints = async () => {
       const cpName = cpObj?.checkpoint_name || checkpointId;
       const reachedTime = new Date().toLocaleTimeString();
       showCenterToast(`📴 No internet — Checkpoint "${cpName}" saved locally at ${reachedTime}. Will sync when connected.`, 'warning');
-      // 🛠️ DEBUG
-      showCenterToast(`[OFFLINE-SAVE] "${cpName}" | overspeed:${capturedOverspeedCount} | SQLite only`, 'warning', 3000);
       if (voiceAlertsEnabled) {
         try {
           const completedCount = Object.values(checkpointStatusRef.current).filter(s => s.completed).length + 1;
@@ -575,8 +550,6 @@ const syncPendingCheckpoints = async () => {
         const cpObj = checkpoints.find(c => c.checkpoint_id === checkpointId);
         const cpName = cpObj?.checkpoint_name || checkpointId;
         const cpPoint = parseInt(cpObj?.checkpoint_point, 10);
-        // 🛠️ DEBUG — server sync success
-        showCenterToast(`[SERVER-OK] "${cpName}" synced ✅ | overspeed:${capturedOverspeedCount}`, 'success', 3000);
         if (cpName !== 'START' && cpName !== 'FINISH') {
           setMarkerColors((prev) => ({ ...prev, [checkpointId]: '#185a9d' })); // blue for synced
         }
@@ -604,18 +577,12 @@ const syncPendingCheckpoints = async () => {
         }
         return true;
       } else {
-        // 🛠️ DEBUG
-        showCenterToast(`[CP-FAIL] HTTP:${res.status} | ${data?.status} | ${data?.message || '?'}`, 'error', 3000);
         syncingCheckpointsRef.current.delete(checkpointId);
         setTimeout(() => {
           syncPendingCheckpoints();
         }, 3000);
-       
       }
     } catch (err) {
-    
-      // 🛠️ DEBUG
-      showCenterToast(`[CP-ERR] ${err?.message || String(err)}`, 'error', 3000);
       syncingCheckpointsRef.current.delete(checkpointId);
       setTimeout(() => {
         syncPendingCheckpoints();
@@ -628,8 +595,6 @@ const syncPendingCheckpoints = async () => {
   const checkProximityToCheckpoints = (lat, lng, accuracy = 0) => {
     // Reject fixes with poor GPS accuracy to prevent ghost syncs from drift.
     if (accuracy > 30) {
-      // 🛠️ DEBUG
-      showCenterToast(`[GPS-GATE] accuracy ${Math.round(accuracy)}m > 30m — skipped`, 'warning', 3000);
       return;
     }
     checkpoints.forEach((cp) => {
@@ -645,8 +610,6 @@ const syncPendingCheckpoints = async () => {
         ? parseFloat(cp.accuracy)
         : 30;
 
-      // 🛠️ DEBUG — log proximity for every checkpoint (remove if too noisy)
-      // showCenterToast(`[PROX] "${cp.checkpoint_name}" dist:${Math.round(distance)}m radius:${checkpointRadius}m`, 'info', 3000);
       if (distance < checkpointRadius) {
         if (!checkpointStatusRef.current[cp.checkpoint_id]?.completed && !syncingCheckpointsRef.current.has(cp.checkpoint_id)) {
           syncingCheckpointsRef.current.add(cp.checkpoint_id);
@@ -673,8 +636,6 @@ const syncPendingCheckpoints = async () => {
             } catch (e) {}
           }
           const reachedTime = new Date().toLocaleTimeString();
-          // 🛠️ DEBUG — checkpoint detected
-          showCenterToast(`[CP-DETECTED] "${cp.checkpoint_name}" | overspeed:${capturedOverspeedCount} | time:${reachedTime}`, 'info', 3000);
           // Update the ref synchronously (mirrors MapSimulationScreen) so the START gate
           checkpointStatusRef.current = {
             ...checkpointStatusRef.current,
@@ -684,7 +645,7 @@ const syncPendingCheckpoints = async () => {
             ...prev,
             [cp.checkpoint_id]: { time: reachedTime, completed: true },
           }));
-          
+
           saveCheckpoint({
             event_id: event_id, // Use event_id from route params for consistency
             category_id: category_id, // Use category_id from route params for consistency
@@ -699,8 +660,6 @@ const syncPendingCheckpoints = async () => {
             status: 'completed',
             over_speed: capturedOverspeedCount
           });
-          // 🛠️ DEBUG — local DB save confirm
-          showCenterToast(`[DB-SAVED] "${cp.checkpoint_name}" | overspeed:${capturedOverspeedCount} | event:${event_id}`, 'info', 3000);
 
           // Fire START/FINISH alert immediately — don't block on server round-trip.
           const cpNameImm = (cp.checkpoint_name || '').trim();
@@ -985,9 +944,6 @@ const syncPendingCheckpoints = async () => {
   const restoreEventData = useCallback(() => {
     if (!event_id) return;
 
-    // 🛠️ DEBUG
-    showCenterToast(`[BG-RESTORE] App foregrounded — reloading DB checkpoints`, 'info', 3000);
-
     getCompletedCheckpointsForEvent(event_id, (completedCheckpoints) => {
       const previousCheckpointStatus = {};
       const restoredMarkerColors = {};
@@ -1009,12 +965,6 @@ const syncPendingCheckpoints = async () => {
         checkpointStatusRef.current = { ...checkpointStatusRef.current, ...previousCheckpointStatus };
         setCheckpointStatus((prev) => ({ ...prev, ...previousCheckpointStatus }));
         setMarkerColors((prev) => ({ ...prev, ...restoredMarkerColors }));
-        // 🛠️ DEBUG
-        const names = completedCheckpoints.map(c => c.checkpoint_name).join(', ');
-        showCenterToast(`[BG-RESTORE-OK] ${completedCheckpoints.length} checkpoints: ${names}`, 'success', 3000);
-      } else {
-        // 🛠️ DEBUG
-        showCenterToast(`[BG-RESTORE-EMPTY] No checkpoints found in DB`, 'warning', 3000);
       }
     });
 
@@ -1024,14 +974,9 @@ const syncPendingCheckpoints = async () => {
         if (!isNaN(val) && val > 0) {
           overspeedCountRef.current = val;
           setOverspeedCount(val);
-          // 🛠️ DEBUG
-          showCenterToast(`[BG-OVERSPEED] Restored overspeed count: ${val}`, 'info', 3000);
         }
       }
-    }).catch((err) => {
-      // 🛠️ DEBUG
-      showCenterToast(`[BG-OVERSPEED-ERR] ${err?.message || 'AsyncStorage failed'}`, 'error', 3000);
-    });
+    }).catch(() => {});
   }, [event_id]);
 
   // Start the GPS watch on mount so marker/route/checkpoint/speed are live immediately.
@@ -1039,8 +984,6 @@ const syncPendingCheckpoints = async () => {
     startFollowingUserLocation();
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'background') {
-        // 🛠️ DEBUG
-        showCenterToast(`[APP-BG] App going to background — animations stopped`, 'info', 3000);
         // Stop looping animations — running Animated.loop in background can cause memory leaks.
         if (flashAnimationRef.current) {
           flashAnimationRef.current.stop();
@@ -1121,7 +1064,7 @@ const syncPendingCheckpoints = async () => {
     enableHighAccuracy: true,
     timeout: 30000,
     maximumAge: 2000,
-    distanceFilter: 3,
+    distanceFilter: 1,
     forceRequestLocation: true,
     forceLocationManager: false,
     showLocationDialog: true,
@@ -1148,57 +1091,22 @@ const syncPendingCheckpoints = async () => {
 
       const id = Geolocation.watchPosition(
         (position) => {
-          // 🛠️ DEBUG — first fix only
-          if (!debugFirstFixShownRef.current) {
-            debugFirstFixShownRef.current = true;
-            showCenterToast(`[GPS-FIX] accuracy:${Math.round(position.coords.accuracy)}m speed:${Math.round((position.coords.speed || 0) * 3.6)}kmh`, 'info', 3000);
-          }
           // Drop low-quality fixes — satellite lag causes off-road jumps above 25m accuracy.
           if (position.coords.accuracy > 25) {
-            // 🛠️ DEBUG
-            showCenterToast(`[GPS-DROP] accuracy ${Math.round(position.coords.accuracy)}m > 25m`, 'warning', 3000);
             return;
           }
           const { latitude, longitude, heading, accuracy } = position.coords;
           const previousRaw = previousRawLocationRef.current || { latitude, longitude };
 
-          // 🛠️ DEBUG — off-road diagnosis
           const rawJump = getDistanceFromLatLonInMeters(
             previousRaw.latitude, previousRaw.longitude, latitude, longitude
           );
           if (rawJump > 100) {
             // GPS teleport noise (seen as 400m+ jumps in logs) — skip tick entirely
-            showCenterToast(
-              `[GPS-NOISE] ${Math.round(rawJump)}m teleport in 1 tick — discarded`,
-              'error', 3000
-            );
             return;
-          }
-          if (rawJump > 50) {
-            // Big GPS jump — likely cause of off-road
-            showCenterToast(
-              `[OFF-ROAD⚠️] Raw jump ${Math.round(rawJump)}m in 1 tick! acc:${Math.round(accuracy)}m — smoother applying heavy correction`,
-              'error', 3000
-            );
-          } else if (rawJump > 20) {
-            showCenterToast(
-              `[GPS-JUMP] ${Math.round(rawJump)}m jump detected | acc:${Math.round(accuracy)}m`,
-              'warning', 3000
-            );
           }
 
           const smoothedLocation = smoothGPSCoordinates(latitude, longitude, accuracy);
-
-          // 🛠️ DEBUG — how much did smoother correct?
-          const smoothCorrection = getDistanceFromLatLonInMeters(
-            smoothedLocation.latitude, smoothedLocation.longitude, latitude, longitude
-          );
-          if (smoothCorrection > 15) {
-            showCenterToast(
-              `[SMOOTH-CORRECTION] ${Math.round(smoothCorrection)}m correction applied | raw→smooth`,
-              'warning', 3000
-            );
-          }
 
           userRouteRef.current.push(smoothedLocation);
           lastUserLocationRef.current = smoothedLocation;
@@ -1207,28 +1115,53 @@ const syncPendingCheckpoints = async () => {
           }
           let newHeading = userHeading;
           const distanceMoved = getDistanceFromLatLonInMeters(
-            previousRaw.latitude, 
-            previousRaw.longitude, 
-            latitude, 
+            previousRaw.latitude,
+            previousRaw.longitude,
+            latitude,
             longitude
           );
-          
-          if (typeof heading === 'number' && !isNaN(heading) && heading > 0) {
-            newHeading = heading;
-            lastValidHeadingRef.current = heading;
-          } else if (distanceMoved >= MIN_DISTANCE_FOR_HEADING) {
+
+          const prevSmoothed = previousSmoothedLocationRef.current;
+          const smoothedDistanceMoved = prevSmoothed
+            ? getDistanceFromLatLonInMeters(prevSmoothed.latitude, prevSmoothed.longitude, smoothedLocation.latitude, smoothedLocation.longitude)
+            : 0;
+
+          if (prevSmoothed && smoothedDistanceMoved >= MIN_DISTANCE_FOR_HEADING) {
+            // Moving: trust calculated bearing over hardware compass (prevents crab-walking)
             newHeading = calculateBearing(
-              previousRaw.latitude, 
-              previousRaw.longitude, 
-              latitude,
-              longitude
+              prevSmoothed.latitude,
+              prevSmoothed.longitude,
+              smoothedLocation.latitude,
+              smoothedLocation.longitude
             );
             lastValidHeadingRef.current = newHeading;
+          } else if (typeof heading === 'number' && !isNaN(heading) && heading >= 0) {
+            // Stationary: fallback to hardware compass if available
+            newHeading = heading;
+            lastValidHeadingRef.current = heading;
           } else {
+            // No valid compass and not moving: use last known heading
             newHeading = lastValidHeadingRef.current;
           }
+          // Speed-gated heading: apply directly when moving (>5 km/h) to keep turns crisp;
+          // use a tiny EMA (0.1) only at standstill/slow to suppress jitter.
+          const headingSpeedKmh = typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)
+            ? position.coords.speed * 3.6
+            : 0;
+          if (smoothedHeadingRef.current === null) {
+            smoothedHeadingRef.current = newHeading;
+          } else if (headingSpeedKmh > 5) {
+            smoothedHeadingRef.current = newHeading;
+          } else {
+            let hdiff = newHeading - smoothedHeadingRef.current;
+            if (hdiff > 180) hdiff -= 360;
+            if (hdiff < -180) hdiff += 360;
+            smoothedHeadingRef.current = ((smoothedHeadingRef.current + 0.1 * hdiff) + 360) % 360;
+          }
+          newHeading = smoothedHeadingRef.current;
           setUserHeading(newHeading);
           previousRawLocationRef.current = { latitude, longitude };
+          previousSmoothedLocationRef.current = smoothedLocation;
           // Feed the marker imperatively — bypasses the React render cycle so the
           // AnimatedRegion transition is never interrupted by parent state updates.
           const markerSpeedKmh = typeof position.coords.speed === 'number' && !isNaN(position.coords.speed)
@@ -1275,8 +1208,6 @@ const syncPendingCheckpoints = async () => {
         },
         GEO_HIGH_ACCURACY_OPTS
       );
-      // 🛠️ DEBUG
-      showCenterToast(`[GPS-WATCH] Started watchId:${id}`, 'info', 3000);
       setWatchId(id);
     });
   };

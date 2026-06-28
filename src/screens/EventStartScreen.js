@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, SafeAreaView, StatusBar, BackHandler } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Share, Alert, Modal, Platform, PermissionsAndroid, Linking, SafeAreaView, StatusBar, BackHandler } from "react-native";
+import Geolocation from "react-native-geolocation-service";
+import { getDistanceFromLatLonInMeters } from "../utils/mapHelpers";
+import { getCompletedCheckpointsForEvent } from "../services/dbService";
 import { useFocusEffect } from "@react-navigation/native";
 import LinearGradient from "react-native-linear-gradient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -54,6 +57,7 @@ export default function EventStartScreen({ navigation, route }) {
   const [eventConfig, setEventConfig] = useState(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState(null);
+
 
   // ✅ Check if event is already completed or aborted on mount
   useEffect(() => {
@@ -115,26 +119,28 @@ export default function EventStartScreen({ navigation, route }) {
   const gpsAccuracyDisplay = eventConfig?.gps_accuracy ? `${eventConfig.gps_accuracy} Meters` : (event.gpsAccuracy || 'N/A');
 
   useEffect(() => {
-    const eventDateTime = eventStartDate !== 'Start Date N/A' ? new Date(eventStartDate) : new Date();
+    const parsedStartDate = eventStartDate !== 'Start Date N/A'
+      ? eventStartDate.replace(' ', 'T')
+      : null;
+    const eventDateTime = parsedStartDate ? new Date(parsedStartDate) : new Date();
     const updateTimer = () => {
       const now = new Date();
       const diff = eventDateTime - now;
       setTimeLeft(diff > 0 ? diff : 0);
       setTimerActive(diff > 0);
-      
-      // Check if current date matches event start date and time >= flag off time
+
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth();
       const currentDay = now.getDate();
-      
+
       const eventYear = eventDateTime.getFullYear();
       const eventMonth = eventDateTime.getMonth();
       const eventDay = eventDateTime.getDate();
-      
+
       const isSameDate = (currentYear === eventYear && currentMonth === eventMonth && currentDay === eventDay);
-      
+
       let canStart = false;
-     
+
       if (isSameDate && flagOffDisplay && flagOffDisplay !== 'N/A' && flagOffDisplay.trim() !== '') {
         const flagOffMatch = flagOffDisplay.match(/(\d{1,2}):(\d{2})/);
         if (flagOffMatch) {
@@ -142,13 +148,13 @@ export default function EventStartScreen({ navigation, route }) {
           const flagOffMinutes = parseInt(flagOffMatch[2], 10);
           const currentHours = now.getHours();
           const currentMinutes = now.getMinutes();
-                
+
           if (currentHours > flagOffHours || (currentHours === flagOffHours && currentMinutes >= flagOffMinutes)) {
             canStart = true;
           }
         }
       }
-      
+
       setCanStartEvent(canStart);
     };
     updateTimer();
@@ -180,6 +186,85 @@ export default function EventStartScreen({ navigation, route }) {
   const handleStartEvent = async () => {
     setStartPressed(true);
     setStartMessage(`Event will be start in ${formatTime(timeLeft)}`);
+
+    const isResume = await new Promise((resolve) => {
+      getCompletedCheckpointsForEvent(String(eventId), (completed) => {
+        resolve(Array.isArray(completed) && completed.length > 0);
+      });
+    });
+
+    if (!isResume) {
+      const apiLat = parseFloat(eventConfig?.latitude);
+      const apiLng = parseFloat(eventConfig?.longitude);
+      const radiusMeters = Number(eventConfig?.start_gps_accuracy) || 200;
+
+      if (!isNaN(apiLat) && !isNaN(apiLng)) {
+        let permissionGranted = false;
+        if (Platform.OS === 'android') {
+          const result = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            {
+              title: "Location Permission",
+              message: "Location access is required to verify your position at the start venue.",
+              buttonPositive: "Allow",
+              buttonNegative: "Cancel",
+            }
+          );
+          permissionGranted = result === PermissionsAndroid.RESULTS.GRANTED;
+        } else {
+          const status = await Geolocation.requestAuthorization('whenInUse');
+          permissionGranted = status === 'granted';
+        }
+
+        if (!permissionGranted) {
+          Alert.alert(
+            "Location Permission Required",
+            "Allow location access to start the rally. If you denied permanently, enable it from Settings.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ]
+          );
+          return;
+        }
+
+        let position;
+        try {
+          position = await new Promise((resolve, reject) => {
+            Geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 5000,
+            });
+          });
+        } catch (_err) {
+          Alert.alert(
+            "GPS Unavailable",
+            "Could not get your location. Please enable location services and try again.",
+            [{ text: "OK" }]
+          );
+          return;
+        }
+
+        const distance = getDistanceFromLatLonInMeters(
+          position.coords.latitude,
+          position.coords.longitude,
+          apiLat,
+          apiLng
+        );
+
+        if (distance > radiusMeters) {
+          Alert.alert(
+            "Wrong Location",
+            `You are ${Math.round(distance)} m away from the start venue. Move within ${radiusMeters} m to begin.`,
+            [{ text: "OK" }]
+          );
+          return;
+        }
+      }
+    }
+
+    // All checks passed — proceed with existing logic
     // ✅ Reset abort flag when starting event normally
     await AsyncStorage.removeItem(`event_${eventId}_aborted`);
     console.log(`✅ Abort flag reset for event ${eventId}`);
@@ -214,7 +299,6 @@ export default function EventStartScreen({ navigation, route }) {
         event_end_date: eventEndDate, // Pass end date
         event_name: eventName, // Pass event name for reference
         duration: duration // Pass duration from config to MapScreen
-
       });
     } else {
       Alert.alert('Error', 'Failed to fetch checkpoints. Please try again.');
@@ -359,15 +443,6 @@ export default function EventStartScreen({ navigation, route }) {
               {status.message === "Status Unknown" ? `Event starts in: ${formatTime(timeLeft)}` : status.message}
             </Text>
           )}
-          <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => {
-                  handleStartEvent();
-                
-              }}
-            >
-              <Text style={styles.startBtnTextIntegrated}>START</Text>
-            </TouchableOpacity>
           {/* Start Button - Only show if event is not completed */}
           {!isEventCompleted && (
             <TouchableOpacity
@@ -691,9 +766,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 4,
     letterSpacing: 0.3,
-  },
-  startBtnDisabled: {
-    opacity: 0.5,
   },
   statusPending: {
     color: '#185a9d',

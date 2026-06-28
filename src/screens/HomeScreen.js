@@ -282,24 +282,6 @@ export default function Dashboard({ navigation }) {
               ))}
             </View>
 
-            {/* 🧪 TEMP: Map Simulator launcher (remove before production) */}
-            <TouchableOpacity
-              onPress={() => navigation.navigate('MapSimulationScreen')}
-              style={{
-                marginHorizontal: width * 0.04,
-                marginTop: 14,
-                backgroundColor: '#1976d2',
-                borderRadius: 10,
-                paddingVertical: 12,
-                alignItems: 'center',
-                elevation: 3,
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>
-                🧪 Open Map Simulator
-              </Text>
-            </TouchableOpacity>
-
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
